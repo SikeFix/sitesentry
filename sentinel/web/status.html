@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="build" content="status-v7">
+<meta name="build" content="status-v8">
 <title>服务状态 - SiteSentry</title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
@@ -26,33 +26,53 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background: var(--bg); color: var(--ink); line-height: 1.6;
+    background:
+      radial-gradient(1100px 420px at 50% -140px, rgba(37, 99, 235, .07), transparent 70%),
+      var(--bg);
+    color: var(--ink); line-height: 1.6;
   }
+  ::selection { background: rgba(37, 99, 235, .18); }
   a { color: var(--primary); text-decoration: none; }
   a:hover { text-decoration: underline; }
 
   .hd {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    color: #fff; padding: 28px 20px 64px;
+    position: relative; color: #fff; padding: 34px 20px 70px;
+    background:
+      radial-gradient(820px 300px at 12% -60%, rgba(59, 130, 246, .30), transparent 62%),
+      radial-gradient(640px 260px at 92% -40%, rgba(16, 185, 129, .16), transparent 60%),
+      linear-gradient(135deg, #0b1220 0%, #152238 100%);
   }
-  .hd-inner { max-width: 960px; margin: 0 auto; }
-  .hd-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hd::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size: 36px 36px;
+    -webkit-mask-image: radial-gradient(ellipse 90% 120% at 50% 0%, #000 30%, transparent 78%);
+    mask-image: radial-gradient(ellipse 90% 120% at 50% 0%, #000 30%, transparent 78%);
+  }
+  .hd-inner { max-width: 960px; margin: 0 auto; position: relative; }
+  .hd-top { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
   .logo {
-    width: 44px; height: 44px; border-radius: 12px; flex: none;
-    background: rgba(37, 99, 235, .35); display: flex; align-items: center; justify-content: center;
-    font-size: 20px; color: #93c5fd;
+    width: 48px; height: 48px; border-radius: 14px; flex: none;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: #fff; box-shadow: 0 8px 22px rgba(37, 99, 235, .5);
   }
-  .hd h1 { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+  .hd h1 { font-size: 24px; font-weight: 800; letter-spacing: .5px; }
   .hd .sub { color: #94a3b8; font-size: 13px; margin-top: 2px; }
+  .hd-meta { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
   .overall {
-    margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
-    padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 9px 18px; border-radius: 999px; font-size: 14.5px; font-weight: 700;
+    border: 1px solid transparent;
   }
-  .overall.ok { background: rgba(22, 163, 74, .18); color: #4ade80; }
-  .overall.bad { background: rgba(220, 38, 38, .2); color: #fca5a5; }
-  .overall .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+  .overall.ok { background: rgba(22, 163, 74, .16); color: #4ade80; border-color: rgba(74, 222, 128, .38); box-shadow: 0 0 26px rgba(34, 197, 94, .28); }
+  .overall.bad { background: rgba(220, 38, 38, .16); color: #fca5a5; border-color: rgba(252, 165, 165, .38); box-shadow: 0 0 26px rgba(239, 68, 68, .25); }
+  .overall .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-  .updated { color: #64748b; font-size: 12px; margin-top: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .hd-uptime { color: #93c5fd; font-size: 12.5px; font-weight: 600; letter-spacing: .2px; }
+  .updated { color: #64748b; font-size: 12px; margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
   .main { max-width: 960px; margin: -40px auto 40px; padding: 0 20px; }
   .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px; }
@@ -62,6 +82,16 @@
     transition: transform .18s, box-shadow .18s, border-color .18s;
   }
   .card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15, 23, 42, .09); }
+  .card.c-total:hover { border-color: #bfdbfe; }
+  .card.c-up:hover { border-color: #bbf7d0; }
+  .card.c-down:hover { border-color: #fecaca; }
+  .card.c-maint:hover { border-color: #dbe2ea; }
+  .card.c-open:hover { border-color: #fde68a; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .card { animation: fadeUp .45s ease both; }
+  .card:nth-child(2) { animation-delay: .05s; } .card:nth-child(3) { animation-delay: .1s; }
+  .card:nth-child(4) { animation-delay: .15s; } .card:nth-child(5) { animation-delay: .2s; }
+  .sec { animation: fadeUp .5s ease both; animation-delay: .25s; }
   .c-ico {
     width: 36px; height: 36px; border-radius: 10px; margin-bottom: 10px; color: #fff;
     display: flex; align-items: center; justify-content: center; font-size: 15px;
@@ -87,6 +117,10 @@
     border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 700;
   }
   .sec-hd i { color: var(--primary); }
+  .s-ico {
+    width: 30px; height: 30px; border-radius: 9px; background: #eff6ff; color: var(--primary);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 13px;
+  }
   .sec-count {
     margin-left: auto; background: #eff6ff; color: #2563eb;
     font-size: 12px; font-weight: 700; padding: 2px 11px; border-radius: 999px;
@@ -109,8 +143,15 @@
   .sdot.down { background: var(--down); box-shadow: 0 0 0 3px var(--down-bg); }
   .sdot.maint { background: #94a3b8; box-shadow: 0 0 0 3px #f1f5f9; }
   .sdot.other { background: var(--ink-3); }
-  .tname { font-weight: 600; font-size: 14px; }
+  .tname { font-weight: 650; font-size: 14.5px; }
+  .s-chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1.5px 9px; border-radius: 999px; margin-left: 8px; vertical-align: 1.5px; }
+  .s-chip.up { background: var(--ok-bg); color: var(--ok); }
+  .s-chip.down { background: var(--down-bg); color: var(--down); }
+  .s-chip.maint { background: #eef2f7; color: #475569; }
+  .s-chip.other { background: #f1f5f9; color: #94a3b8; }
   .turl { font-size: 12px; color: var(--ink-3); }
+  .trow.row-down { background: #fff8f8; }
+  .trow.row-down .trow-hd:hover { background: #fff1f1; }
   .chips { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
   .chip {
     font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #f1f5f9;
@@ -191,7 +232,10 @@
         <h1 id="appName">SiteSentry</h1>
         <div class="sub">实时服务状态</div>
       </div>
-      <div id="overall" class="overall ok"><span class="dot"></span><span id="overallText">正在加载…</span></div>
+      <div class="hd-meta">
+        <div id="overall" class="overall ok"><span class="dot"></span><span id="overallText">正在加载…</span></div>
+        <div class="hd-uptime" id="hdUptime"></div>
+      </div>
     </div>
     <div class="updated"><span id="updated">—</span></div>
   </div>
@@ -207,18 +251,18 @@
   </div>
 
   <div class="sec">
-    <div class="sec-hd"><i class="fa-solid fa-server"></i>监控目标<span class="sec-count" id="tCount"></span></div>
+    <div class="sec-hd"><span class="s-ico"><i class="fa-solid fa-server"></i></span>监控目标<span class="sec-count" id="tCount"></span></div>
     <div id="targets"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
   </div>
 
   <div class="sec">
-    <div class="sec-hd"><i class="fa-solid fa-bell"></i>最近事件</div>
+    <div class="sec-hd"><span class="s-ico"><i class="fa-solid fa-bell"></i></span>最近事件</div>
     <div id="incidents"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
   </div>
 </div>
 
 <div class="ft">
-  <i class="fa-solid fa-shield-halved"></i>Powered by <b>SiteSentry 哨兵</b> · 每 60 秒自动刷新
+  <i class="fa-solid fa-shield-halved"></i>Powered by <b>SiteSentry 哨兵</b> · 2026 · 每 60 秒自动刷新
 </div>
 
 <script>
@@ -300,19 +344,24 @@ function render() {
   $('cDown').classList.toggle('danger', s.targets_down > 0);
   $('cOpen').classList.toggle('danger', s.open_incidents > 0);
   $('tCount').textContent = d.targets.length;
+  const u30 = d.targets.map(t => t.uptime_30d).filter(v => v != null);
+  $('hdUptime').textContent = u30.length
+    ? ('30 天平均可用率 ' + (Math.round(u30.reduce((a, b) => a + b, 0) / u30.length * 100) / 100) + '%')
+    : '';
 
   // 目标列表
   if (!d.targets.length) {
     $('targets').innerHTML = '<div class="empty"><i class="fa-solid fa-inbox"></i>暂无公开的监控目标</div>';
   } else {
+    const ST_CHIP = { up: '在线', down: '离线', maint: '维护中', other: '未检查' };
     $('targets').innerHTML = d.targets.map((t) => {
       const st = t.in_maintenance ? 'maint' : (t.status === 'up' ? 'up' : (t.status === 'down' ? 'down' : 'other'));
-      return `<div class="trow" data-id="${t.id}">
+      return `<div class="trow${st === 'down' ? ' row-down' : ''}" data-id="${t.id}">
         <div class="trow-hd">
           ${iconImg(t.icon)}
           <span class="sdot ${st}"></span>
           <div style="min-width:0">
-            <div class="tname">${esc(t.name)}</div>
+            <div class="tname">${esc(t.name)}<span class="s-chip ${st}">${ST_CHIP[st]}</span></div>
             <a class="turl" href="${esc(t.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t.url)}</a>
           </div>
           <div class="chips">
