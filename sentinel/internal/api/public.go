@@ -198,9 +198,13 @@ func (h *Handler) PublicTarget(c *gin.Context) {
 	for rows.Next() {
 		var hStr string
 		var okN int
-		var ms interface{}
+		var ms sql.NullFloat64
 		if rows.Scan(&hStr, &okN, &ms) == nil {
-			hours = append(hours, gin.H{"h": hStr, "ok": okN, "ms": ms})
+			msVal := interface{}(nil)
+			if ms.Valid {
+				msVal = int64(ms.Float64)
+			}
+			hours = append(hours, gin.H{"h": hStr, "ok": okN, "ms": msVal})
 		}
 	}
 	incRows, err := h.St.DB.Query(`

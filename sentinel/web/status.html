@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="build" content="status-v8">
+<meta name="build" content="status-v9">
 <title>服务状态 - SiteSentry</title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
@@ -125,34 +125,41 @@
     margin-left: auto; background: #eff6ff; color: #2563eb;
     font-size: 12px; font-weight: 700; padding: 2px 11px; border-radius: 999px;
   }
-  .trow { border-bottom: 1px solid var(--line); }
-  .trow:last-child { border-bottom: none; }
-  .trow-hd {
-    display: flex; align-items: center; gap: 12px; padding: 14px 20px; cursor: pointer;
-    flex-wrap: wrap;
+  .tgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding: 16px; }
+  .tcell { display: flex; flex-direction: column; min-width: 0; }
+  .tcard {
+    position: relative; overflow: hidden; background: #fff; min-width: 0;
+    border: 1px solid #e8edf4; border-radius: 14px; padding: 15px 16px 13px;
+    cursor: pointer; transition: transform .18s, box-shadow .18s, border-color .18s;
   }
-  .trow-hd:hover { background: #f8fafc; }
-  .ticon {
-    width: 30px; height: 30px; border-radius: 8px; flex: none;
+  .tcard::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--ok); }
+  .tcard.down { background: #fffafa; border-color: #fecaca; }
+  .tcard.down::before { background: var(--down); }
+  .tcard.maint::before { background: #94a3b8; }
+  .tcard.other::before { background: var(--line); }
+  .tcard:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, .08); }
+  .tcard.up:hover { border-color: #bbf7d0; }
+  .tcard.down:hover { border-color: #fca5a5; }
+  .tcard.maint:hover { border-color: #dbe2ea; }
+  .tcard-head { display: flex; align-items: center; gap: 12px; }
+  .tcard .ticon {
+    width: 42px; height: 42px; border-radius: 12px; flex: none;
     background: #f1f5f9; display: flex; align-items: center; justify-content: center;
-    overflow: hidden; color: var(--ink-3); font-size: 14px;
+    overflow: hidden; color: var(--ink-3); font-size: 18px;
   }
-  .ticon img { width: 20px; height: 20px; object-fit: contain; }
-  .sdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-  .sdot.up { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
-  .sdot.down { background: var(--down); box-shadow: 0 0 0 3px var(--down-bg); }
-  .sdot.maint { background: #94a3b8; box-shadow: 0 0 0 3px #f1f5f9; }
-  .sdot.other { background: var(--ink-3); }
-  .tname { font-weight: 650; font-size: 14.5px; }
+  .tcard .ticon img { width: 26px; height: 26px; object-fit: contain; }
+  .tcard-id { flex: 1; min-width: 0; }
+  .tcard-name { font-weight: 700; font-size: 15px; line-height: 1.35; }
   .s-chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1.5px 9px; border-radius: 999px; margin-left: 8px; vertical-align: 1.5px; }
   .s-chip.up { background: var(--ok-bg); color: var(--ok); }
   .s-chip.down { background: var(--down-bg); color: var(--down); }
   .s-chip.maint { background: #eef2f7; color: #475569; }
   .s-chip.other { background: #f1f5f9; color: #94a3b8; }
-  .turl { font-size: 12px; color: var(--ink-3); }
-  .trow.row-down { background: #fff8f8; }
-  .trow.row-down .trow-hd:hover { background: #fff1f1; }
-  .chips { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tcard-url { font-size: 12px; color: var(--ink-3); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tcard-url:hover { color: var(--primary); text-decoration: none; }
+  .tcard .caret { color: var(--ink-3); font-size: 12px; transition: transform .2s; flex: none; }
+  .tcell.open .caret { transform: rotate(180deg); }
+  .tcard-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .chip {
     font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #f1f5f9;
     color: var(--ink-2); white-space: nowrap;
@@ -162,13 +169,11 @@
   .chip.good b { color: var(--ok); }
   .chip.bad { background: var(--down-bg); color: var(--down); }
   .chip.bad b { color: var(--down); }
-  .chip.maint { background: #f1f5f9; color: #475569; }
-  .chip.maint b { color: #475569; }
-  .caret { color: var(--ink-3); font-size: 12px; transition: transform .2s; }
-  .trow.open .caret { transform: rotate(180deg); }
-
-  .trow-detail { display: none; padding: 6px 20px 18px; border-top: 1px dashed var(--line); }
-  .trow.open .trow-detail { display: block; }
+  .tcard-detail {
+    display: none; margin-top: 10px; min-width: 0; background: #fff;
+    border: 1px dashed var(--line); border-radius: 12px; padding: 6px 16px 14px;
+  }
+  .tcell.open .tcard-detail { display: block; animation: fadeUp .3s ease both; }
   .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
   .dg { background: #f8fafc; border-radius: 10px; padding: 10px 14px; }
   .dg .l { font-size: 12px; color: var(--ink-2); }
@@ -207,15 +212,14 @@
 
   @media (max-width: 900px) {
     .cards { grid-template-columns: repeat(3, 1fr); }
+    .tgrid { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
     .hd { padding: 22px 16px 56px; }
     .main { margin-top: -36px; padding: 0 14px; }
-    .card .n { font-size: 22px; }
-    .trow-hd { padding: 12px 14px; }
-    .trow-hd .caret { order: 3; margin-left: auto; }
-    .chips { order: 4; margin-left: 0; width: 100%; margin-top: 6px; }
+    .c-val { font-size: 23px; }
+    .tgrid { padding: 14px; gap: 12px; }
     .detail-grid { grid-template-columns: 1fr; }
     .inc { padding: 12px 14px; }
     .inc-time { display: none; }
@@ -252,7 +256,7 @@
 
   <div class="sec">
     <div class="sec-hd"><span class="s-ico"><i class="fa-solid fa-server"></i></span>监控目标<span class="sec-count" id="tCount"></span></div>
-    <div id="targets"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
+    <div class="tgrid" id="targets"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
   </div>
 
   <div class="sec">
@@ -356,28 +360,28 @@ function render() {
     const ST_CHIP = { up: '在线', down: '离线', maint: '维护中', other: '未检查' };
     $('targets').innerHTML = d.targets.map((t) => {
       const st = t.in_maintenance ? 'maint' : (t.status === 'up' ? 'up' : (t.status === 'down' ? 'down' : 'other'));
-      return `<div class="trow${st === 'down' ? ' row-down' : ''}" data-id="${t.id}">
-        <div class="trow-hd">
-          ${iconImg(t.icon)}
-          <span class="sdot ${st}"></span>
-          <div style="min-width:0">
-            <div class="tname">${esc(t.name)}<span class="s-chip ${st}">${ST_CHIP[st]}</span></div>
-            <a class="turl" href="${esc(t.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t.url)}</a>
+      return `<div class="tcell" data-id="${t.id}">
+        <div class="tcard ${st}">
+          <div class="tcard-head">
+            ${iconImg(t.icon)}
+            <div class="tcard-id">
+              <div class="tcard-name">${esc(t.name)}<span class="s-chip ${st}">${ST_CHIP[st]}</span></div>
+              <a class="tcard-url" href="${esc(t.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t.url)}</a>
+            </div>
+            <i class="fa-solid fa-chevron-down caret"></i>
           </div>
-          <div class="chips">
-            ${t.in_maintenance ? '<span class="chip maint">维护中 · 暂不告警</span>' : ''}
-            ${t.last_ms != null ? `<span class="chip"><b>${t.last_ms}</b> ms</span>` : ''}
+          <div class="tcard-stats">
+            ${t.last_ms != null ? `<span class="chip"><b>${t.last_ms}</b> ms 响应</span>` : ''}
             ${upChip('24h', t.uptime_24h)}
             ${upChip('7d', t.uptime_7d)}
             ${upChip('30d', t.uptime_30d)}
           </div>
-          <i class="fa-solid fa-chevron-down caret"></i>
         </div>
-        <div class="trow-detail"><div class="loading" data-detail>点击查看详情…</div></div>
+        <div class="tcard-detail" data-detail><div class="loading">点击查看详情…</div></div>
       </div>`;
     }).join('');
-    document.querySelectorAll('.trow-hd').forEach((el) => {
-      el.addEventListener('click', () => onRowClick(el.closest('.trow')));
+    document.querySelectorAll('.tcell .tcard').forEach((el) => {
+      el.addEventListener('click', () => onRowClick(el.closest('.tcell')));
     });
   }
 
@@ -424,18 +428,23 @@ async function onRowClick(row) {
 }
 
 function renderDetail(t) {
-  // 30 天小时条
-  let bars = '';
-  let lastDay = '';
-  if (t.hours && t.hours.length) {
-    bars = t.hours.map((h) => {
-      const day = String(h.h).slice(5, 10);
-      const cls = h.ok ? '' : 'down';
-      const title = `${h.h} ${h.ok ? '正常' : '异常'}${h.ms != null ? ' · ' + h.ms + 'ms' : ''}${day !== lastDay ? ' [day]' : ''}`;
-      lastDay = day;
-      return `<span class="bar ${cls}" title="${esc(title)}"></span>`;
-    }).join('');
+  // 30 天小时条：完整时间轴，有数据的按真实状态着色，无数据的显示灰色
+  const cellMap = {};
+  (t.hours || []).forEach((h) => { cellMap[h.h] = h; });
+  const p2 = (n) => String(n).padStart(2, '0');
+  const now = Date.now();
+  const start = new Date(now - 29 * 24 * 3600 * 1000);
+  start.setMinutes(0, 0, 0);
+  const bars = [];
+  for (let ts = start.getTime(); ts <= now; ts += 3600 * 1000) {
+    const d = new Date(ts);
+    const key = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:00:00`;
+    const h = cellMap[key];
+    if (!h) { bars.push('<span class="bar none"></span>'); continue; }
+    const title = `${h.h} ${h.ok ? '正常' : '异常'}${h.ms != null ? ' · ' + h.ms + 'ms' : ''}`;
+    bars.push(`<span class="bar ${h.ok ? '' : 'down'}" title="${esc(title)}"></span>`);
   }
+  let barsHtml = bars.join('');
   const incHtml = (t.incidents && t.incidents.length)
     ? '<ul class="mini-inc">' + t.incidents.map((a) => {
         const icon = a.type === 'check_recovery' ? 'fa-rotate-left' : 'fa-triangle-exclamation';
@@ -449,8 +458,8 @@ function renderDetail(t) {
       <div class="dg"><div class="l">近 30 天可用率</div><div class="v">${t.uptime_30d != null ? t.uptime_30d + '%' : '-'}</div></div>
       <div class="dg"><div class="l">近 90 天可用率</div><div class="v">${t.uptime_90d != null ? t.uptime_90d + '%' : '-'}</div></div>
     </div>
-    <div class="bars-title">近 30 天状态（每小时一格，绿=正常，红=异常）</div>
-    <div class="bars">${bars || '<span style="font-size:12px;color:var(--ink-3)">暂无数据</span>'}</div>
+    <div class="bars-title">近 30 天状态（每小时一格，绿=正常，红=异常，灰=暂无数据）</div>
+    <div class="bars">${barsHtml}</div>
     <div class="bars-x"><span>30 天前</span><span>今天</span></div>
     <div class="bars-title">近期事件</div>
     ${incHtml}`;
