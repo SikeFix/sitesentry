@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="build" content="status-v5">
+<title>服务状态 - SiteSentry</title>
+<link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
+<style>
+  :root {
+    --bg: #f3f5f9;
+    --card: #ffffff;
+    --ink: #1e293b;
+    --ink-2: #64748b;
+    --ink-3: #94a3b8;
+    --line: #e2e8f0;
+    --primary: #2563eb;
+    --ok: #16a34a;
+    --ok-bg: #dcfce7;
+    --down: #dc2626;
+    --down-bg: #fee2e2;
+    --warn: #d97706;
+    --warn-bg: #fef3c7;
+    --side: #0f172a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.6;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .hd {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #fff; padding: 28px 20px 64px;
+  }
+  .hd-inner { max-width: 960px; margin: 0 auto; }
+  .hd-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .logo {
+    width: 44px; height: 44px; border-radius: 12px; flex: none;
+    background: rgba(37, 99, 235, .35); display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: #93c5fd;
+  }
+  .hd h1 { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+  .hd .sub { color: #94a3b8; font-size: 13px; margin-top: 2px; }
+  .overall {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
+  }
+  .overall.ok { background: rgba(22, 163, 74, .18); color: #4ade80; }
+  .overall.bad { background: rgba(220, 38, 38, .2); color: #fca5a5; }
+  .overall .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  .updated { color: #64748b; font-size: 12px; margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .admin-link {
+    color: #cbd5e1; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.14); text-decoration: none; transition: all .16s;
+  }
+  .admin-link:hover { background: rgba(255,255,255,.16); color: #fff; text-decoration: none; }
+
+  .main { max-width: 960px; margin: -40px auto 40px; padding: 0 20px; }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+  .card {
+    background: var(--card); border-radius: 12px; padding: 16px 18px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 4px 16px rgba(15, 23, 42, .04);
+  }
+  .card .n { font-size: 26px; font-weight: 700; }
+  .card .l { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+  .card .n.ok { color: var(--ok); } .card .n.down { color: var(--down); }
+
+  .sec {
+    background: var(--card); border-radius: 12px; margin-bottom: 22px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 4px 16px rgba(15, 23, 42, .04);
+    overflow: hidden;
+  }
+  .sec-hd {
+    display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+    border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 700;
+  }
+  .sec-hd i { color: var(--primary); }
+  .trow { border-bottom: 1px solid var(--line); }
+  .trow:last-child { border-bottom: none; }
+  .trow-hd {
+    display: flex; align-items: center; gap: 12px; padding: 14px 20px; cursor: pointer;
+    flex-wrap: wrap;
+  }
+  .trow-hd:hover { background: #f8fafc; }
+  .ticon {
+    width: 30px; height: 30px; border-radius: 8px; flex: none;
+    background: #f1f5f9; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; color: var(--ink-3); font-size: 14px;
+  }
+  .ticon img { width: 20px; height: 20px; object-fit: contain; }
+  .sdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .sdot.up { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .sdot.down { background: var(--down); box-shadow: 0 0 0 3px var(--down-bg); }
+  .sdot.other { background: var(--ink-3); }
+  .tname { font-weight: 600; font-size: 14px; }
+  .turl { font-size: 12px; color: var(--ink-3); }
+  .chips { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #f1f5f9;
+    color: var(--ink-2); white-space: nowrap;
+  }
+  .chip b { color: var(--ink); font-weight: 700; }
+  .chip.good { background: var(--ok-bg); color: var(--ok); }
+  .chip.good b { color: var(--ok); }
+  .chip.bad { background: var(--down-bg); color: var(--down); }
+  .chip.bad b { color: var(--down); }
+  .caret { color: var(--ink-3); font-size: 12px; transition: transform .2s; }
+  .trow.open .caret { transform: rotate(180deg); }
+
+  .trow-detail { display: none; padding: 6px 20px 18px; border-top: 1px dashed var(--line); }
+  .trow.open .trow-detail { display: block; }
+  .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+  .dg { background: #f8fafc; border-radius: 10px; padding: 10px 14px; }
+  .dg .l { font-size: 12px; color: var(--ink-2); }
+  .dg .v { font-size: 18px; font-weight: 700; }
+  .bars-title { font-size: 12px; color: var(--ink-2); margin: 10px 0 6px; }
+  .bars { display: flex; align-items: flex-end; gap: 1px; height: 44px; overflow-x: auto; padding-bottom: 2px; }
+  .bar { flex: none; width: 4px; height: 100%; border-radius: 1px; background: var(--ok); opacity: .85; }
+  .bar.down { background: var(--down); }
+  .bar.none { background: var(--line); }
+  .bars-x { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+  .mini-inc { list-style: none; margin-top: 10px; }
+  .mini-inc li { font-size: 13px; color: var(--ink-2); padding: 6px 0; border-top: 1px dashed var(--line); }
+  .mini-inc li i { margin-right: 6px; }
+  .loading { padding: 24px; text-align: center; color: var(--ink-3); font-size: 13px; }
+
+  .inc { display: flex; gap: 14px; padding: 14px 20px; border-bottom: 1px solid var(--line); align-items: flex-start; }
+  .inc:last-child { border-bottom: none; }
+  .inc-line { flex: none; width: 12px; margin-top: 7px; }
+  .inc-line .d { width: 12px; height: 12px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .inc-line.bad .d { background: var(--down); box-shadow: 0 0 0 3px var(--down-bg); }
+  .inc-line.warn .d { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+  .inc-body { flex: 1; min-width: 0; }
+  .inc-t { font-size: 14px; font-weight: 600; }
+  .inc-m { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+  .inc-time { font-size: 12px; color: var(--ink-3); white-space: nowrap; margin-top: 4px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: 1px; }
+  .badge.open { background: var(--down-bg); color: var(--down); }
+  .badge.resolved { background: var(--ok-bg); color: var(--ok); }
+  .badge.ignored { background: #f1f5f9; color: var(--ink-3); }
+  .empty { padding: 28px; text-align: center; color: var(--ink-3); font-size: 13px; }
+  .empty i { font-size: 22px; display: block; margin-bottom: 8px; color: var(--ink-3); }
+
+  .ft { text-align: center; padding: 24px 20px 34px; color: var(--ink-3); font-size: 12px; }
+  .ft a { color: var(--ink-2); }
+  .ft i { margin-right: 4px; }
+
+  @media (max-width: 640px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .hd { padding: 22px 16px 56px; }
+    .main { margin-top: -36px; padding: 0 14px; }
+    .card .n { font-size: 22px; }
+    .trow-hd { padding: 12px 14px; }
+    .trow-hd .caret { order: 3; margin-left: auto; }
+    .chips { order: 4; margin-left: 0; width: 100%; margin-top: 6px; }
+    .detail-grid { grid-template-columns: 1fr; }
+    .inc { padding: 12px 14px; }
+    .inc-time { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hd">
+  <div class="hd-inner">
+    <div class="hd-top">
+      <div class="logo"><i class="fa-solid fa-shield-halved"></i></div>
+      <div>
+        <h1 id="appName">SiteSentry</h1>
+        <div class="sub">实时服务状态</div>
+      </div>
+      <div id="overall" class="overall ok"><span class="dot"></span><span id="overallText">正在加载…</span></div>
+    </div>
+    <div class="updated"><span id="updated">—</span><a class="admin-link" href="/admin" target="_blank"><i class="fa-solid fa-shield-halved"></i>管理控制台</a></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="cards">
+    <div class="card"><div class="n" id="cTotal">-</div><div class="l">监控站点</div></div>
+    <div class="card"><div class="n ok" id="cUp">-</div><div class="l">在线</div></div>
+    <div class="card"><div class="n down" id="cDown">-</div><div class="l">离线</div></div>
+    <div class="card"><div class="n" id="cOpen">-</div><div class="l">未解决事件</div></div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-hd"><i class="fa-solid fa-server"></i>监控目标</div>
+    <div id="targets"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-hd"><i class="fa-solid fa-bell"></i>最近事件</div>
+    <div id="incidents"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
+  </div>
+</div>
+
+<div class="ft">
+  <i class="fa-solid fa-shield-halved"></i>Powered by <a href="/admin" target="_blank">SiteSentry 哨兵 · 管理控制台</a> · 每 60 秒自动刷新
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+const TYPE_LABEL = { check_down: '站点离线', check_recovery: '站点恢复', latency_spike: '响应变慢', log_burst: '日志激增', reported: '上报异常' };
+const SEV_LABEL = { critical: '严重', warning: '警告', info: '提示' };
+const SEV_CLASS = { critical: 'bad', warning: 'warn', info: '' };
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return esc(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function dur(fromIso, toIso) {
+  if (!fromIso) return '';
+  const a = new Date(fromIso).getTime();
+  const b = toIso ? new Date(toIso).getTime() : Date.now();
+  const m = Math.max(0, Math.round((b - a) / 60000));
+  if (m < 1) return '刚刚';
+  if (m < 60) return m + ' 分钟';
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + ' 小时 ' + (m % 60 ? (m % 60) + ' 分' : '');
+  return Math.round(h / 24) + ' 天';
+}
+let lastRefresh = null;
+// 单个可用率 chip：按阈值着色（≥99.5 绿 / ≥95 默认 / 其余红）
+function upChip(label, v) {
+  if (v == null) return `<span class="chip">${label} 暂无</span>`;
+  const cls = v >= 99.5 ? 'good' : (v >= 95 ? '' : 'bad');
+  return `<span class="chip ${cls}">${label} <b>${v}%</b></span>`;
+}
+// 图标加载失败回退：替换为通用地球图标
+function iconErr(img) {
+  img.outerHTML = '<i class="fa-solid fa-globe"></i>';
+}
+// 站点图标：经本服务 /api/public/icon 代理加载（规避目标站 CORP/防盗链），失败回退地球图标
+function iconImg(icon) {
+  if (!icon) return '<span class="ticon"><i class="fa-solid fa-globe"></i></span>';
+  const src = '/api/public/icon?url=' + encodeURIComponent(icon);
+  return `<span class="ticon"><img src="${src}" alt="" loading="lazy" onerror="iconErr(this)"></span>`;
+}
+
+let DATA = null;
+
+async function load() {
+  try {
+    const r = await fetch('/api/public/status', { cache: 'no-store' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '请求失败');
+    DATA = j.data;
+    lastRefresh = new Date();
+    render();
+  } catch (e) {
+    $('overallText').textContent = '状态获取失败';
+    $('overall').className = 'overall bad';
+    $('updated').textContent = '最近一次成功刷新: ' + (lastRefresh ? fmtTime(lastRefresh.toISOString()) : '—');
+  }
+}
+
+function render() {
+  const d = DATA;
+  $('appName').textContent = d.app_name || 'SiteSentry';
+  document.title = '服务状态 - ' + (d.app_name || 'SiteSentry');
+  const okAll = d.overall === 'operational';
+  $('overall').className = 'overall ' + (okAll ? 'ok' : 'bad');
+  $('overallText').textContent = okAll ? '所有系统运行正常' : '部分服务异常';
+  $('updated').textContent = '更新时间 ' + fmtTime(lastRefresh.toISOString()) + ' · 每 60 秒自动刷新';
+  const s = d.summary;
+  $('cTotal').textContent = s.targets_total;
+  $('cUp').textContent = s.targets_up;
+  $('cDown').textContent = s.targets_down;
+  $('cOpen').textContent = s.open_incidents;
+
+  // 目标列表
+  if (!d.targets.length) {
+    $('targets').innerHTML = '<div class="empty"><i class="fa-solid fa-inbox"></i>暂无公开的监控目标</div>';
+  } else {
+    $('targets').innerHTML = d.targets.map((t) => {
+      const st = t.status === 'up' ? 'up' : (t.status === 'down' ? 'down' : 'other');
+      return `<div class="trow" data-id="${t.id}">
+        <div class="trow-hd">
+          ${iconImg(t.icon)}
+          <span class="sdot ${st}"></span>
+          <div style="min-width:0">
+            <div class="tname">${esc(t.name)}</div>
+            <a class="turl" href="${esc(t.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t.url)}</a>
+          </div>
+          <div class="chips">
+            ${t.last_ms != null ? `<span class="chip"><b>${t.last_ms}</b> ms</span>` : ''}
+            ${upChip('24h', t.uptime_24h)}
+            ${upChip('7d', t.uptime_7d)}
+            ${upChip('30d', t.uptime_30d)}
+          </div>
+          <i class="fa-solid fa-chevron-down caret"></i>
+        </div>
+        <div class="trow-detail"><div class="loading" data-detail>点击查看详情…</div></div>
+      </div>`;
+    }).join('');
+    document.querySelectorAll('.trow-hd').forEach((el) => {
+      el.addEventListener('click', () => onRowClick(el.closest('.trow')));
+    });
+  }
+
+  // 事件
+  if (!d.incidents.length) {
+    $('incidents').innerHTML = '<div class="empty"><i class="fa-regular fa-circle-check"></i>近期没有异常事件，一切顺利</div>';
+  } else {
+    $('incidents').innerHTML = d.incidents.map((a) => {
+      const cls = a.type === 'check_down' ? 'bad' : (a.type === 'check_recovery' ? '' : (SEV_CLASS[a.severity] || 'warn'));
+      const icon = a.type === 'check_recovery' ? 'fa-rotate-left' : (a.type === 'check_down' ? 'fa-triangle-exclamation' : 'fa-gauge-high');
+      const durTxt = a.type === 'check_down' && a.resolved_at ? '（持续 ' + dur(a.created_at, a.resolved_at) + '）' : '';
+      const stBadge = a.status === 'open' ? '<span class="badge open">未解决</span>' : (a.status === 'ignored' ? '<span class="badge ignored">已忽略</span>' : '<span class="badge resolved">已解决</span>');
+      return `<div class="inc">
+        <div class="inc-line ${cls}"><span class="d"></span></div>
+        <div class="inc-body">
+          <div class="inc-t"><i class="fa-solid ${icon}" style="margin-right:6px"></i>${esc(a.title)}${stBadge}</div>
+          <div class="inc-m">${esc(TYPE_LABEL[a.type] || a.type)} · ${esc(a.target_name)} · ${SEV_LABEL[a.severity] || a.severity}${durTxt}</div>
+        </div>
+        <div class="inc-time">${fmtTime(a.created_at)}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function onRowClick(row) {
+  const box = row.querySelector('[data-detail]');
+  if (!row.classList.contains('open')) {
+    row.classList.add('open');
+    if (!box.dataset.loaded) {
+      box.innerHTML = '<div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载详情…</div>';
+      try {
+        const r = await fetch('/api/public/targets/' + row.dataset.id, { cache: 'no-store' });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || '加载失败');
+        box.innerHTML = renderDetail(j.data);
+        box.dataset.loaded = '1';
+      } catch (e) {
+        box.innerHTML = '<div class="empty">详情加载失败：' + esc(e.message) + '</div>';
+      }
+    }
+  } else {
+    row.classList.remove('open');
+  }
+}
+
+function renderDetail(t) {
+  // 30 天小时条
+  let bars = '';
+  let lastDay = '';
+  if (t.hours && t.hours.length) {
+    bars = t.hours.map((h) => {
+      const day = String(h.h).slice(5, 10);
+      const cls = h.ok ? '' : 'down';
+      const title = `${h.h} ${h.ok ? '正常' : '异常'}${h.ms != null ? ' · ' + h.ms + 'ms' : ''}${day !== lastDay ? ' [day]' : ''}`;
+      lastDay = day;
+      return `<span class="bar ${cls}" title="${esc(title)}"></span>`;
+    }).join('');
+  }
+  const incHtml = (t.incidents && t.incidents.length)
+    ? '<ul class="mini-inc">' + t.incidents.map((a) => {
+        const icon = a.type === 'check_recovery' ? 'fa-rotate-left' : 'fa-triangle-exclamation';
+        const color = a.type === 'check_recovery' ? 'var(--ok)' : (a.type === 'check_down' ? 'var(--down)' : 'var(--warn)');
+        return `<li><i class="fa-solid ${icon}" style="color:${color}"></i>${esc(a.title)} · ${fmtTime(a.created_at)}${a.resolved_at ? ' → 持续 ' + dur(a.created_at, a.resolved_at) : ''}</li>`;
+      }).join('') + '</ul>'
+    : '<div class="mini-inc"><li style="border:none;color:var(--ink-3)">近 30 天无异常事件</li></div>';
+  return `
+    <div class="detail-grid">
+      <div class="dg"><div class="l">近 7 天可用率</div><div class="v">${t.uptime_7d != null ? t.uptime_7d + '%' : '-'}</div></div>
+      <div class="dg"><div class="l">近 30 天可用率</div><div class="v">${t.uptime_30d != null ? t.uptime_30d + '%' : '-'}</div></div>
+      <div class="dg"><div class="l">近 90 天可用率</div><div class="v">${t.uptime_90d != null ? t.uptime_90d + '%' : '-'}</div></div>
+    </div>
+    <div class="bars-title">近 30 天状态（每小时一格，绿=正常，红=异常）</div>
+    <div class="bars">${bars || '<span style="font-size:12px;color:var(--ink-3)">暂无数据</span>'}</div>
+    <div class="bars-x"><span>30 天前</span><span>今天</span></div>
+    <div class="bars-title">近期事件</div>
+    ${incHtml}`;
+}
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

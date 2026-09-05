@@ -1,0 +1,11 @@
+# 构建产物
+sentinel
+sentinel-*
+*.exe
+
+# 本地配置（含数据库密码 / 密钥），以 config.example.json 为模板
+config.json
+
+# 系统文件
+.DS_Store
+*.log

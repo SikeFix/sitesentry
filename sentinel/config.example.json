@@ -1,0 +1,15 @@
+{
+  "listen": "127.0.0.1:33330",
+  "db": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "YOUR_DB_USER",
+    "pass": "YOUR_DB_PASSWORD",
+    "name": "YOUR_DB_NAME"
+  },
+  "web_dir": "web",
+  "app_name": "SiteSentry 哨兵",
+  "base_url": "http://127.0.0.1:33330",
+  "check_tick_sec": 30,
+  "llm_api_key": "YOUR_LLM_API_KEY"
+}

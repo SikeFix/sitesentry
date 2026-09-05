@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SiteSentry 哨兵 · 网站状态监测与日志系统</title>
+<meta name="build" content="v9-ai-decision">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232563eb' d='M12 1.5l8.5 3.2v6.1c0 5.2-3.6 9.9-8.5 11.7C7.1 20.7 3.5 16 3.5 10.8V4.7L12 1.5z'/%3E%3Cpath fill='%23fff' d='M10.8 14.6l-2.3-2.3-1.4 1.4 3.7 3.7 6.1-6.1-1.4-1.4-4.7 4.7z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="/assets/style.css?v=6">
+</head>
+<body>
+<div id="app">
+<n-config-provider :theme-overrides="themeOverrides">
+
+  <!-- ============ 登录 / 注册 ============ -->
+  <div v-if="view === 'login'" class="auth-wrap">
+    <n-card class="auth-card" :bordered="false">
+      <div class="auth-brand">
+        <div class="auth-logo"><i class="fa-solid fa-shield-halved"></i></div>
+        <h1>SiteSentry 哨兵</h1>
+        <p>网站状态监测 · 日志收集 · AI 异常诊断</p>
+      </div>
+      <n-tabs :value="loginTab" @update:value="v => loginTab = v" type="line" animated>
+        <n-tab-pane name="login" tab="登录">
+          <div class="form-item">
+            <n-input v-model:value="loginForm.username" size="large" placeholder="请输入用户名" clearable autocomplete="username">
+              <template #prefix><i class="fa-regular fa-user"></i></template>
+            </n-input>
+          </div>
+          <div class="form-item">
+            <n-input v-model:value="loginForm.password" size="large" type="password" show-password-map placeholder="请输入密码" autocomplete="current-password" @keyup.enter="doLogin">
+              <template #prefix><i class="fa-solid fa-lock"></i></template>
+            </n-input>
+          </div>
+          <n-button class="auth-btn" type="primary" size="large" block :loading="busy" @click="doLogin">登 录</n-button>
+        </n-tab-pane>
+        <n-tab-pane name="register" tab="注册">
+          <div class="form-item">
+            <n-input v-model:value="regForm.username" size="large" placeholder="3-32 位字母、数字或下划线" clearable autocomplete="username">
+              <template #prefix><i class="fa-regular fa-user"></i></template>
+            </n-input>
+          </div>
+          <div class="form-item">
+            <n-input v-model:value="regForm.email" size="large" placeholder="邮箱（可选）" clearable autocomplete="email">
+              <template #prefix><i class="fa-regular fa-envelope"></i></template>
+            </n-input>
+          </div>
+          <div class="form-item">
+            <n-input v-model:value="regForm.password" size="large" type="password" show-password-map placeholder="至少 6 位" autocomplete="new-password" @keyup.enter="doRegister">
+              <template #prefix><i class="fa-solid fa-lock"></i></template>
+            </n-input>
+          </div>
+          <n-button class="auth-btn" type="primary" size="large" block :loading="busy" @click="doRegister">注 册</n-button>
+          <p class="auth-tip"><i class="fa-solid fa-circle-info"></i> 首位注册用户将自动成为系统管理员</p>
+        </n-tab-pane>
+      </n-tabs>
+    </n-card>
+  </div>
+
+  <!-- ============ 主框架 ============ -->
+  <div v-else class="shell">
+    <div class="topbar">
+      <n-button quaternary circle size="medium" class="topbar-burger" @click="mobileMenu = true"><i class="fa-solid fa-bars"></i></n-button>
+      <div class="topbar-title">SiteSentry <span class="topbar-sub">哨兵</span></div>
+      <div class="topbar-right">
+        <a class="topbar-status" :class="openAnomCount > 0 ? 'bad' : 'ok'" :title="openAnomCount > 0 ? openAnomCount + ' 个未处理异常' : '暂无未处理异常'" @click.prevent="go('anomalies')"><i class="fa-solid fa-circle"></i></a>
+        <n-avatar round size="small" :style="{ background: '#2563eb', fontSize: '12px', cursor: 'pointer' }" @click="go('profile')">{{ avatarChar }}</n-avatar>
+      </div>
+    </div>
+    <n-drawer v-model:show="mobileMenu" :width="'86%'" placement="left" to="body" class="side-drawer">
+      <n-drawer-content :native-scrollbar="false" title="SiteSentry 哨兵" closable>
+        <n-menu class="drawer-menu" :value="menuValue" :options="menuOptions" @update:value="onMenuPick" />
+        <div class="drawer-foot">
+          <div class="side-user">
+            <n-avatar round size="small" :style="{ background: '#2563eb', fontSize: '13px' }">{{ avatarChar }}</n-avatar>
+            <div class="side-user-meta">
+              <div class="side-user-name">{{ user && user.username }}</div>
+              <div class="side-user-role" style="color:#64748b">{{ user && (user.is_admin ? '管理员' : '普通用户') }}</div>
+            </div>
+          </div>
+          <n-button block size="small" style="margin-top:12px" @click="doLogout"><i class="fa-solid fa-right-from-bracket" style="margin-right:6px"></i>退出登录</n-button>
+        </div>
+      </n-drawer-content>
+    </n-drawer>
+    <aside class="side">
+      <div class="side-brand">
+        <div class="side-logo"><i class="fa-solid fa-shield-halved"></i></div>
+        <div>
+          <div class="side-title">SiteSentry</div>
+          <div class="side-sub">哨兵监测系统</div>
+        </div>
+      </div>
+      <n-menu class="side-menu" :value="menuValue" :options="menuOptions" @update:value="onMenuPick" />
+      <div class="side-foot">
+        <div class="side-user" @click="go('profile')">
+          <n-avatar round size="small" :style="{ background: '#2563eb', fontSize: '13px' }">{{ avatarChar }}</n-avatar>
+          <div class="side-user-meta">
+            <div class="side-user-name">{{ user && user.username }}</div>
+            <div class="side-user-role">{{ user && (user.is_admin ? '管理员' : '普通用户') }}</div>
+          </div>
+        </div>
+        <n-button class="side-logout" text size="small" @click="doLogout"><i class="fa-solid fa-right-from-bracket"></i><span>退出登录</span></n-button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="view-pad">
+
+        <!-- ============ 仪表盘 ============ -->
+        <div v-if="view === 'dashboard'">
+          <div class="view-head">
+            <h2>仪表盘</h2>
+            <span class="view-sub">系统运行概览</span>
+            <a class="head-action" href="/" target="_blank"><i class="fa-solid fa-signal"></i>公开状态页</a>
+          </div>
+          <n-grid cols="1 s:2 l:4" :x-gap="16" :y-gap="16" responsive="screen" style="margin-bottom:16px">
+            <n-grid-item>
+              <n-card class="stat-card clickable" :bordered="true" @click="go('targets')" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#eff6ff;color:#2563eb"><i class="fa-solid fa-globe"></i></div>
+                  <div>
+                    <div class="stat-num">{{ dash.targets ? dash.targets.up + ' / ' + dash.targets.total : '-' }}</div>
+                    <div class="stat-label">目标在线 / 总数</div>
+                  </div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="stat-card" :bordered="true" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#f0fdf4;color:#16a34a"><i class="fa-solid fa-bolt"></i></div>
+                  <div>
+                    <div class="stat-num">{{ dash.checks_today || 0 }}</div>
+                    <div class="stat-label">今日探测次数</div>
+                  </div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="stat-card clickable" :bordered="true" @click="go('anomalies')" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#fef2f2;color:#dc2626"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                  <div>
+                    <div class="stat-num">{{ dash.open_anoms || 0 }}</div>
+                    <div class="stat-label">未处理异常</div>
+                  </div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="stat-card clickable" :bordered="true" @click="go('logs')" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#fffbeb;color:#d97706"><i class="fa-solid fa-file-lines"></i></div>
+                  <div>
+                    <div class="stat-num">{{ dash.err_logs_24h || 0 }}</div>
+                    <div class="stat-label">24h 错误日志</div>
+                  </div>
+                </div>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
+          <n-grid cols="1 l:2" :x-gap="16" :y-gap="16" responsive="screen" style="margin-bottom:16px">
+            <n-grid-item>
+              <n-card class="pad-card" content-style="padding:16px 18px">
+                <div class="card-title"><i class="fa-solid fa-chart-line" style="color:#2563eb;margin-right:8px"></i>最近 7 天可用率</div>
+                <div class="chart-box"><canvas ref="uptimeChart"></canvas></div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="pad-card" content-style="padding:16px 18px">
+                <div class="card-title"><i class="fa-solid fa-chart-pie" style="color:#2563eb;margin-right:8px"></i>日志级别分布（24h）</div>
+                <div class="chart-box"><canvas ref="levelChart"></canvas></div>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
+          <n-card class="pad-card" content-style="padding:16px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div class="card-title"><i class="fa-solid fa-bell" style="color:#2563eb;margin-right:8px"></i>最近异常</div>
+              <n-button text size="small" type="primary" @click="go('anomalies')">查看全部<i class="fa-solid fa-angle-right" style="margin-left:4px"></i></n-button>
+            </div>
+            <n-data-table v-if="dash.recent_anoms && dash.recent_anoms.length" style="margin-top:12px"
+              :columns="recentAnomCols" :data="dash.recent_anoms" :bordered="false" :single-line="false" size="small" />
+            <n-empty v-else description="暂无异常，一切正常" style="margin:34px 0">
+              <template #icon><i class="fa-solid fa-circle-check"></i></template>
+            </n-empty>
+          </n-card>
+        </div>
+
+        <!-- ============ 监测目标 ============ -->
+        <div v-if="view === 'targets'">
+          <div class="view-head">
+            <h2>监测目标</h2>
+            <span class="view-sub">网站可用性探测（每 30 秒调度一轮）</span>
+            <span class="spacer"></span>
+            <n-button type="primary" @click="openTargetModal()"><i class="fa-solid fa-plus" style="margin-right:6px"></i>添加监测目标</n-button>
+          </div>
+          <n-card class="pad-card" content-style="padding:8px 12px 12px">
+            <n-data-table v-if="targets.length" :columns="targetCols" :data="targets" :row-key="r => r.id" :bordered="false" :single-line="false" :scroll-x="1180" />
+            <n-empty v-else description="还没有监测目标，点击右上角「添加监测目标」开始" style="margin:60px 0">
+              <template #icon><i class="fa-solid fa-globe"></i></template>
+            </n-empty>
+          </n-card>
+
+          <n-modal v-model:show="targetModal.show" preset="card" :title="targetModal.id ? '编辑监测目标' : '添加监测目标'" style="width:560px;max-width:92vw" :mask-closable="false">
+            <div class="form-item">
+              <n-input v-model:value="targetModal.f.name" placeholder="例如：官网首页" clearable>
+                <template #prefix><i class="fa-regular fa-circle-dot"></i></template>
+              </n-input>
+            </div>
+            <div class="form-item">
+              <n-input v-model:value="targetModal.f.url" placeholder="https://example.com" clearable>
+                <template #prefix><i class="fa-solid fa-link"></i></template>
+              </n-input>
+            </div>
+            <div class="form-item">
+              <n-input v-model:value="targetModal.f.icon" placeholder="站点图标 URL（可选，显示在公开状态页）" clearable>
+                <template #prefix><i class="fa-regular fa-image"></i></template>
+              </n-input>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-item">
+                <n-select v-model:value="targetModal.f.expect_status" :options="expectStatusOptions" />
+              </div>
+              <div class="form-item">
+                <n-input v-model:value="targetModal.f.keyword" placeholder="页面关键词（可选）" clearable />
+              </div>
+              <div class="form-item">
+                <n-select v-model:value="targetModal.f.interval_sec" :options="intervalOptions" />
+              </div>
+              <div class="form-item">
+                <n-select v-model:value="targetModal.f.timeout_sec" :options="timeoutOptions" />
+              </div>
+            </div>
+            <div class="form-item">
+              <n-input v-model:value="targetModal.f.notify_emails" placeholder="故障通知邮箱（留空使用全局默认，多个用逗号分隔）" clearable>
+                <template #prefix><i class="fa-regular fa-envelope"></i></template>
+              </n-input>
+            </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap">
+              <n-checkbox v-model:checked="targetModal.f.notify_recovery">恢复时发送恢复通知</n-checkbox>
+              <n-checkbox v-model:checked="targetModal.f.public">在公开状态页（首页 /）展示</n-checkbox>
+            </div>
+            <template #footer>
+              <div style="display:flex;justify-content:flex-end;gap:10px">
+                <n-button @click="targetModal.show = false">取消</n-button>
+                <n-button type="primary" :loading="busy" @click="saveTarget">保 存</n-button>
+              </div>
+            </template>
+          </n-modal>
+        </div>
+
+        <!-- ============ 目标详情 ============ -->
+        <div v-if="view === 'target-detail'">
+          <div class="view-head">
+            <n-button quaternary circle @click="go('targets')"><i class="fa-solid fa-arrow-left"></i></n-button>
+            <h2>{{ detail.name || '目标详情' }}</h2>
+            <n-tag :type="detail.status === 'up' ? 'success' : (detail.status === 'down' ? 'error' : 'default')" round size="small">{{ statusLabel(detail) }}</n-tag>
+            <span class="view-sub" v-if="detail.url">{{ detail.url }}</span>
+            <span class="spacer"></span>
+            <n-button type="primary" size="small" @click="refreshDetail()"><i class="fa-solid fa-rotate" style="margin-right:6px"></i>立即检查</n-button>
+          </div>
+          <n-grid cols="1 s:2 l:4" :x-gap="16" :y-gap="16" responsive="screen" style="margin-bottom:16px" v-if="detail.stats">
+            <n-grid-item>
+              <n-card class="stat-card" :bordered="true" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#f0fdf4;color:#16a34a"><i class="fa-solid fa-circle-check"></i></div>
+                  <div><div class="stat-num">{{ detail.stats.uptime }}%</div><div class="stat-label">区间可用率</div></div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="stat-card" :bordered="true" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#eff6ff;color:#2563eb"><i class="fa-solid fa-stopwatch"></i></div>
+                  <div><div class="stat-num">{{ detail.stats.avg_ms }} ms</div><div class="stat-label">平均响应</div></div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="stat-card" :bordered="true" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#fffbeb;color:#d97706"><i class="fa-solid fa-hourglass-half"></i></div>
+                  <div><div class="stat-num">{{ detail.stats.max_ms }} ms</div><div class="stat-label">最大响应</div></div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="stat-card" :bordered="true" content-style="padding:16px 18px">
+                <div class="stat-row">
+                  <div class="stat-ico" style="background:#f1f5f9;color:#475569"><i class="fa-solid fa-magnifying-glass"></i></div>
+                  <div><div class="stat-num">{{ detail.stats.total }}</div><div class="stat-label">探测次数</div></div>
+                </div>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
+          <n-card class="pad-card" content-style="padding:16px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <div class="card-title"><i class="fa-solid fa-wave-square" style="color:#2563eb;margin-right:8px"></i>响应时间与状态</div>
+              <n-select size="small" style="width:150px" v-model:value="detailHours" :options="hoursOptions" />
+            </div>
+            <div class="chart-box chart-box-lg"><canvas ref="targetChart"></canvas></div>
+          </n-card>
+          <n-card class="pad-card" content-style="padding:16px 18px">
+            <div class="card-title"><i class="fa-solid fa-clock-rotate-left" style="color:#2563eb;margin-right:8px"></i>探测历史（最多 500 条）</div>
+            <n-data-table v-if="reversedPoints.length" style="margin-top:12px" :columns="checkCols" :data="reversedPoints" :row-key="r => r.id" :bordered="false" :single-line="false" size="small" :scroll-x="780" />
+            <n-empty v-else description="该时间范围内暂无探测记录" style="margin:40px 0" />
+          </n-card>
+        </div>
+
+        <!-- ============ 日志中心 ============ -->
+        <div v-if="view === 'logs'">
+          <div class="view-head">
+            <h2>日志中心</h2>
+            <span class="view-sub">本站日志 + 其他网站通过令牌上报的日志</span>
+            <span class="spacer"></span>
+            <n-button @click="showLogDocs = true"><i class="fa-solid fa-book" style="margin-right:6px"></i>上报接口文档</n-button>
+          </div>
+          <n-card class="pad-card" content-style="padding:16px 18px">
+            <n-space align="center" :wrap="true" style="margin-bottom:14px">
+              <n-select v-model:value="logFilter.level" :options="levelOptions" style="width:130px" @update:value="loadLogs(1)" />
+              <n-select v-model:value="logFilter.source" :options="sourceOptions" style="width:190px" @update:value="loadLogs(1)" />
+              <n-input v-model:value="logFilter.q" placeholder="搜索日志内容…" clearable style="width:240px" @keyup.enter="loadLogs(1)">
+                <template #prefix><i class="fa-solid fa-magnifying-glass"></i></template>
+              </n-input>
+              <n-button @click="loadLogs(1)"><i class="fa-solid fa-magnifying-glass" style="margin-right:6px"></i>查询</n-button>
+            </n-space>
+            <n-data-table v-if="logs.items.length" :columns="logCols" :data="logs.items" :row-key="r => r.id" :bordered="false" :single-line="false" size="small" :scroll-x="1000" />
+            <n-empty v-else description="暂无日志记录" style="margin:44px 0">
+              <template #icon><i class="fa-solid fa-file-lines"></i></template>
+            </n-empty>
+            <div v-if="logs.total > logs.size" style="display:flex;justify-content:center;margin-top:14px">
+              <n-pagination :page="logs.page" :page-size="logs.size" :item-count="logs.total" @update:page="p => loadLogs(p)" />
+            </div>
+          </n-card>
+
+          <n-modal :show="true" preset="card" title="日志上下文" style="width:520px;max-width:92vw" @close="logCtx = null" v-if="logCtx">
+            <pre class="code-block">{{ prettyCtx(logCtx) }}</pre>
+          </n-modal>
+
+          <n-modal :show="true" preset="card" title="外部网站日志 / 异常上报接口" style="width:780px;max-width:94vw" @close="showLogDocs = false" v-if="showLogDocs">
+            <p>其他网站可通过 <b>上报令牌</b>（在「上报令牌」页创建）向本系统推送日志与异常。接口支持 CORS，可直接在浏览器/服务端调用。</p>
+            <div class="doc-h"><i class="fa-solid fa-1"></i>上报日志 <code>POST {{ apiBase }}/api/v1/logs</code></div>
+            <pre class="code-block">curl -X POST "{{ apiBase }}/api/v1/logs" \
+  -H "Authorization: Bearer &lt;你的令牌&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"source":"shop-site","level":"error","message":"订单接口 500","context":{"order_id":12345}}'</pre>
+            <div class="doc-h"><i class="fa-solid fa-2"></i>上报异常（触发 AI 诊断 + 邮件通知）<code>POST {{ apiBase }}/api/v1/anomalies</code></div>
+            <pre class="code-block">curl -X POST "{{ apiBase }}/api/v1/anomalies" \
+  -H "Authorization: Bearer &lt;你的令牌&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"source":"shop-site","severity":"critical","title":"支付服务不可用","detail":"连续 3 次调用支付网关超时"}</pre>
+            <div class="doc-h"><i class="fa-solid fa-3"></i>前端 JS 示例</div>
+            <pre class="code-block">fetch("{{ apiBase }}/api/v1/logs", {
+  method: "POST",
+  headers: { "Authorization": "Bearer &lt;你的令牌&gt;", "Content-Type": "application/json" },
+  body: JSON.stringify({ source: "web-frontend", level: "warn", message: "CDN 加载超时" })
+}).then(r => r.json());</pre>
+            <div class="doc-h"><i class="fa-solid fa-4"></i>字段说明</div>
+            <n-data-table :columns="docCols" :data="docRows" :bordered="true" size="small" />
+          </n-modal>
+        </div>
+
+        <!-- ============ 异常告警 ============ -->
+        <div v-if="view === 'anomalies'">
+          <div class="view-head">
+            <h2>异常告警</h2>
+            <span class="view-sub">异常产生时自动调用 AI 诊断并发送邮件通知</span>
+          </div>
+          <n-card class="pad-card" content-style="padding:16px 18px">
+            <n-space align="center" :wrap="true" style="margin-bottom:14px">
+              <n-select v-model:value="anomFilter.status" :options="anomStatusOptions" style="width:130px" @update:value="loadAnomalies(1)" />
+              <n-select v-model:value="anomFilter.type" :options="anomTypeOptions" style="width:150px" @update:value="loadAnomalies(1)" />
+              <n-select v-model:value="anomFilter.severity" :options="anomSevOptions" style="width:130px" @update:value="loadAnomalies(1)" />
+            </n-space>
+            <n-data-table v-if="anomalies.items.length" :columns="anomCols" :data="anomalies.items" :row-key="r => r.id" :bordered="false" :single-line="false" size="small" :scroll-x="920" />
+            <n-empty v-else description="暂无异常记录" style="margin:44px 0">
+              <template #icon><i class="fa-solid fa-bell"></i></template>
+            </n-empty>
+            <div v-if="anomalies.total > anomalies.size" style="display:flex;justify-content:center;margin-top:14px">
+              <n-pagination :page="anomalies.page" :page-size="anomalies.size" :item-count="anomalies.total" @update:page="p => loadAnomalies(p)" />
+            </div>
+          </n-card>
+        </div>
+
+        <!-- ============ 异常详情 ============ -->
+        <div v-if="view === 'anomaly-detail'">
+          <div class="view-head">
+            <n-button quaternary circle @click="go('anomalies')"><i class="fa-solid fa-arrow-left"></i></n-button>
+            <h2>异常详情</h2>
+            <n-tag v-if="anomaly" :type="anomaly.severity === 'critical' ? 'error' : 'warning'" round size="small">{{ sevLabel(anomaly.severity) }}</n-tag>
+            <n-tag v-if="anomaly" :type="anomaly.status === 'open' ? 'warning' : (anomaly.ai_decision === 'auto_resolve' ? 'info' : 'success')" round size="small">{{ anomaly.status === 'open' ? '未处理' : (anomaly.ai_decision === 'auto_resolve' ? 'AI 自动解决' : '已处理') }}</n-tag>
+            <span class="spacer"></span>
+            <n-button v-if="anomaly && anomaly.status === 'open'" @click="resolveAnomaly"><i class="fa-solid fa-check" style="margin-right:6px"></i>标记已处理</n-button>
+            <n-button type="primary" :loading="busyDiag" @click="rediagnose"><i class="fa-solid fa-robot" style="margin-right:6px"></i>重新 AI 诊断</n-button>
+          </div>
+          <template v-if="anomaly">
+            <n-grid cols="1 l:2" :x-gap="16" :y-gap="16" responsive="screen" style="margin-bottom:16px">
+              <n-grid-item>
+                <n-card class="pad-card" content-style="padding:16px 18px">
+                  <div class="card-title" style="margin-bottom:12px"><i class="fa-solid fa-circle-info" style="color:#2563eb;margin-right:8px"></i>异常信息</div>
+                  <div class="detail-grid">
+                    <div><span class="detail-k">类型</span><span class="detail-v">{{ typeLabel(anomaly.type) }}</span></div>
+                    <div><span class="detail-k">发生时间</span><span class="detail-v">{{ fmtT(anomaly.created_at) }}</span></div>
+                    <div><span class="detail-k">来源</span><span class="detail-v">{{ anomaly.target_name || anomaly.source || '-' }}</span></div>
+                    <div><span class="detail-k">邮件通知</span><span class="detail-v">{{ anomaly.notified ? '已发送' : '未发送' }}</span></div>
+                    <div v-if="anomaly.resolved_at"><span class="detail-k">处理时间</span><span class="detail-v">{{ fmtT(anomaly.resolved_at) }}<span v-if="anomaly.ai_decision === 'auto_resolve'" style="color:#2563eb;margin-left:6px">（AI 自动）</span></span></div>
+                  </div>
+                  <span class="detail-k">标题</span>
+                  <div class="detail-v" style="margin-bottom:12px">{{ anomaly.title }}</div>
+                  <span class="detail-k">详情</span>
+                  <div class="detail-v pre">{{ anomaly.detail }}</div>
+                </n-card>
+              </n-grid-item>
+              <n-grid-item v-if="anomaly.recent_checks && anomaly.recent_checks.length">
+                <n-card class="pad-card" content-style="padding:16px 18px">
+                  <div class="card-title" style="margin-bottom:12px"><i class="fa-solid fa-list-check" style="color:#2563eb;margin-right:8px"></i>最近探测记录</div>
+                  <n-data-table :columns="recentCheckCols" :data="anomaly.recent_checks" :row-key="r => (r.checked_at || '') + '-' + r.ms" :bordered="false" size="small" />
+                </n-card>
+              </n-grid-item>
+            </n-grid>
+            <n-card class="pad-card" content-style="padding:16px 18px">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <div class="card-title"><i class="fa-solid fa-wand-magic-sparkles" style="color:#2563eb;margin-right:8px"></i>AI 智能诊断</div>
+                <n-tag v-if="anomaly.ai_decision" size="small" round :type="anomaly.ai_decision === 'auto_resolve' ? 'info' : 'default'">{{ aiDecisionLabel(anomaly.ai_decision) }}</n-tag>
+                <span class="view-sub" v-if="anomaly.llm_at">诊断时间 {{ fmtT(anomaly.llm_at) }}</span>
+              </div>
+              <div style="margin-top:14px">
+                <n-spin :show="busyDiag">
+                  <div v-if="busyDiag" style="text-align:center;padding:30px 0">
+                    <div class="empty-icon"><i class="fa-solid fa-robot"></i></div>
+                    <p style="color:#94a3b8;font-size:13px;margin-top:12px">AI 正在分析中，通常需要 10~60 秒…</p>
+                  </div>
+                  <div v-else-if="anomaly.llm_analysis" class="md-body" v-html="renderMD(anomaly.llm_analysis)"></div>
+                  <n-empty v-else description="该异常尚未进行 AI 诊断（恢复类异常不诊断）" style="margin:34px 0" />
+                </n-spin>
+              </div>
+            </n-card>
+          </template>
+        </div>
+
+        <!-- ============ AI 助手 ============ -->
+        <div v-if="view === 'ai'">
+          <div class="view-head">
+            <h2>AI 助手</h2>
+            <span class="view-sub">实时咨询系统内异常与日志（{{ settings.llm_model || '模型未配置' }}）</span>
+            <span class="spacer"></span>
+            <n-button size="small" @click="newConversation"><i class="fa-solid fa-plus" style="margin-right:6px"></i>新对话</n-button>
+          </div>
+          <div class="ai-layout">
+            <n-card class="pad-card ai-conv-card" content-style="padding:12px">
+              <div v-if="!aiConvs.length" class="cell-muted" style="text-align:center;padding:20px 0">暂无对话</div>
+              <div v-for="cv in aiConvs" :key="cv.id" :class="['ai-conv', cv.id === aiConvId && 'active']" @click="openConversation(cv.id)">
+                <div class="ai-conv-title"><i class="fa-regular fa-comment-dots" style="margin-right:7px;color:#94a3b8"></i>{{ cv.title }}</div>
+                <div class="ai-conv-meta">{{ cv.message_count }} 条 · {{ fmtT(cv.last_at || cv.created_at) }}</div>
+              </div>
+            </n-card>
+            <n-card class="pad-card" content-style="padding:16px 18px">
+              <div class="ai-msgs" ref="aiMsgsEl">
+                <div v-if="!aiMsgs.length" style="text-align:center;padding:60px 0">
+                  <div class="empty-icon"><i class="fa-regular fa-comments"></i></div>
+                  <p class="ai-hint">试试问：「最近有什么异常？帮我分析一下」「某个服务昨天报的错是什么原因？」</p>
+                </div>
+                <div v-for="(m, i) in aiMsgs" :key="i" :class="['ai-msg', m.role === 'user' ? 'ai-msg-user' : 'ai-msg-ai']">
+                  <div class="ai-msg-avatar">
+                    <template v-if="m.role === 'user'">{{ avatarChar }}</template>
+                    <i v-else class="fa-solid fa-robot"></i>
+                  </div>
+                  <div class="ai-msg-body">
+                    <div class="ai-msg-bubble">
+                      <div v-if="m.role === 'assistant'" :class="['md-body', { streaming: aiBusy && i === aiMsgs.length - 1 }]" v-html="renderMD(m.content)"></div>
+                      <div v-else>{{ m.content }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="ai-input-box">
+                <n-checkbox v-model:checked="aiWithContext">附带当前异常/日志上下文</n-checkbox>
+                <div class="ai-input-row">
+                  <n-input v-model:value="aiInput" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="输入问题，Enter 发送，Shift+Enter 换行" style="flex:1" @keydown.enter.exact.prevent="sendAi" />
+                  <n-button type="primary" :disabled="aiBusy || !aiInput.trim()" @click="sendAi"><i class="fa-solid fa-paper-plane" style="margin-right:6px"></i>发送</n-button>
+                </div>
+              </div>
+            </n-card>
+          </div>
+        </div>
+
+        <!-- ============ 上报令牌 ============ -->
+        <div v-if="view === 'tokens'">
+          <div class="view-head">
+            <h2>上报令牌</h2>
+            <span class="view-sub">供其他网站调用 /api/v1/* 上报日志与异常</span>
+            <span class="spacer"></span>
+            <n-button type="primary" @click="tokenModal = true"><i class="fa-solid fa-plus" style="margin-right:6px"></i>创建令牌</n-button>
+          </div>
+          <n-card class="pad-card" content-style="padding:8px 12px 12px">
+            <n-data-table v-if="tokens.length" :columns="tokenCols" :data="tokens" :row-key="r => r.id" :bordered="false" :single-line="false" :scroll-x="960" />
+            <n-empty v-else description="还没有令牌，点击「创建令牌」生成" style="margin:50px 0">
+              <template #icon><i class="fa-solid fa-key"></i></template>
+            </n-empty>
+          </n-card>
+          <n-modal v-model:show="tokenModal" preset="card" title="创建上报令牌" style="width:480px;max-width:92vw" :mask-closable="false">
+            <div class="form-item">
+              <n-input v-model:value="tokenName" placeholder="令牌名称（用于识别用途，例如：官网日志上报）" clearable @keyup.enter="createToken">
+                <template #prefix><i class="fa-solid fa-key"></i></template>
+              </n-input>
+            </div>
+            <p class="field-tip">创建后请立即复制保存，令牌用于外部系统调用上报接口。</p>
+            <template #footer>
+              <div style="display:flex;justify-content:flex-end;gap:10px">
+                <n-button @click="tokenModal = false">取消</n-button>
+                <n-button type="primary" :loading="busy" @click="createToken">创建</n-button>
+              </div>
+            </template>
+          </n-modal>
+        </div>
+
+        <!-- ============ 设置 ============ -->
+        <div v-if="view === 'settings'">
+          <div class="view-head">
+            <h2>通知与设置</h2>
+            <span class="view-sub">异常通知邮箱、SMTP 邮件通道、AI 模型配置</span>
+          </div>
+          <n-tabs :value="settingsTab" @update:value="onSettingsTab" type="line" animated>
+            <n-tab-pane name="notify" tab="通知邮箱">
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title"><i class="fa-regular fa-envelope" style="color:#2563eb;margin-right:8px"></i>全局默认通知邮箱</div>
+                <div class="view-sub" style="display:block;margin:4px 0 16px">目标未单独设置邮箱时，异常通知发到这里</div>
+                <div class="form-item" style="max-width:560px">
+                  <n-input v-model:value="notifyForm.default_notify_emails" placeholder="例如：you@example.com（多个用英文逗号分隔）" clearable>
+                    <template #prefix><i class="fa-regular fa-envelope"></i></template>
+                  </n-input>
+                </div>
+                <div class="form-actions" style="margin-top:0">
+                  <n-button type="primary" :loading="busy" @click="saveNotify"><i class="fa-solid fa-floppy-disk" style="margin-right:6px"></i>保存</n-button>
+                  <n-button :loading="busy" @click="testMail('')"><i class="fa-solid fa-paper-plane" style="margin-right:6px"></i>发送测试邮件</n-button>
+                </div>
+              </n-card>
+            </n-tab-pane>
+            <n-tab-pane v-if="user && user.is_admin" name="smtp" tab="SMTP 配置">
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:16px"><i class="fa-solid fa-envelope-circle-check" style="color:#2563eb;margin-right:8px"></i>SMTP 邮件通道</div>
+                <div class="form-grid-2" style="max-width:760px">
+                  <div class="form-item">
+                    <n-input v-model:value="smtpForm.smtp_host" placeholder="SMTP 地址" clearable>
+                      <template #prefix><i class="fa-solid fa-server"></i></template>
+                    </n-input>
+                  </div>
+                  <div class="form-item">
+                    <div style="display:flex;gap:10px">
+                      <n-input-number v-model:value="smtpForm.smtp_port" :min="1" :max="65535" placeholder="端口" style="width:130px" />
+                      <n-select v-model:value="smtpForm.smtp_mode" :options="smtpModeOptions" style="flex:1" />
+                    </div>
+                  </div>
+                  <div class="form-item">
+                    <n-input v-model:value="smtpForm.smtp_user" placeholder="发件人地址（登录账号），如 you@company.com" clearable>
+                      <template #prefix><i class="fa-regular fa-user"></i></template>
+                    </n-input>
+                  </div>
+                  <div class="form-item">
+                    <n-input v-model:value="smtpForm.smtp_from_name" placeholder="发件人显示名称" clearable>
+                      <template #prefix><i class="fa-solid fa-id-badge"></i></template>
+                    </n-input>
+                  </div>
+                  <div class="form-item" style="grid-column:1/-1">
+                    <n-input v-model:value="smtpForm.smtp_pass" type="password" show-password-map placeholder="授权码 / 密码（留空不修改）">
+                      <template #prefix><i class="fa-solid fa-key"></i></template>
+                    </n-input>
+                  </div>
+                </div>
+                <n-alert v-if="!smtpForm.smtp_user" type="warning" title="尚未填写发件人地址" style="margin-bottom:16px;max-width:760px">
+                  飞书企业邮箱的 SMTP 登录账号是<b>发件邮箱地址本身</b>（如 xxx@公司域名），请填写后保存，再点「发送测试邮件」验证。
+                </n-alert>
+                <div class="form-actions" style="margin-top:0">
+                  <n-button type="primary" :loading="busy" @click="saveSmtp"><i class="fa-solid fa-floppy-disk" style="margin-right:6px"></i>保存 SMTP 配置</n-button>
+                  <n-button :loading="busy" @click="testMail('')"><i class="fa-solid fa-paper-plane" style="margin-right:6px"></i>发送测试邮件</n-button>
+                </div>
+              </n-card>
+            </n-tab-pane>
+            <n-tab-pane v-if="user && user.is_admin" name="webhook" tab="Webhook 通知">
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:16px"><i class="fa-solid fa-bell" style="color:#2563eb;margin-right:8px"></i>群机器人 Webhook</div>
+                <p class="view-sub" style="display:block;margin-bottom:16px;max-width:760px">检测到异常时，除邮件外同时推送到群机器人。支持飞书、钉钉、企业微信（自定义机器人）以及任意自定义 JSON 接口。</p>
+                <div class="form-item" style="max-width:560px">
+                  <n-select v-model:value="webhookForm.type" :options="webhookTypeOptions" />
+                </div>
+                <div class="form-item" style="max-width:760px">
+                  <n-input v-model:value="webhookForm.url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx" clearable>
+                    <template #prefix><i class="fa-solid fa-link"></i></template>
+                  </n-input>
+                </div>
+                <p class="field-tip" style="margin-top:-8px;margin-bottom:16px">在目标群中「设置 → 群机器人 → 添加自定义机器人」后复制 Webhook 地址。留空表示不启用 Webhook 通知。</p>
+                <div class="form-actions" style="margin-top:0">
+                  <n-button type="primary" :loading="busy" @click="saveWebhook"><i class="fa-solid fa-floppy-disk" style="margin-right:6px"></i>保存</n-button>
+                  <n-button :loading="busy" @click="testWebhook"><i class="fa-solid fa-paper-plane" style="margin-right:6px"></i>发送测试消息</n-button>
+                </div>
+              </n-card>
+            </n-tab-pane>
+            <n-tab-pane v-if="user && user.is_admin" name="llm" tab="AI 模型">
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:16px"><i class="fa-solid fa-robot" style="color:#2563eb;margin-right:8px"></i>大语言模型（OpenAI 兼容接口）</div>
+                <div class="form-grid-2" style="max-width:760px">
+                  <div class="form-item">
+                    <n-input v-model:value="llmForm.llm_base_url" placeholder="API 端点，如 https://api.example.com/v1" clearable>
+                      <template #prefix><i class="fa-solid fa-link"></i></template>
+                    </n-input>
+                  </div>
+                  <div class="form-item">
+                    <n-input v-model:value="llmForm.llm_model" placeholder="模型名称" clearable>
+                      <template #prefix><i class="fa-solid fa-microchip"></i></template>
+                    </n-input>
+                  </div>
+                  <div class="form-item" style="grid-column:1/-1">
+                    <n-input v-model:value="llmForm.llm_api_key" type="password" show-password-map placeholder="API Key（留空不修改）">
+                      <template #prefix><i class="fa-solid fa-key"></i></template>
+                    </n-input>
+                  </div>
+                </div>
+                <div class="form-item">
+                  <n-switch v-model:value="llmEnabled">
+                    <template #checked>启用 AI 异常诊断与助手</template>
+                    <template #unchecked>AI 已停用</template>
+                  </n-switch>
+                </div>
+                <div class="form-item">
+                  <n-switch v-model:value="aiAutoResolve">
+                    <template #checked>AI 自动决策：可自动解决的异常自动关闭（恢复事件始终自动关闭）</template>
+                    <template #unchecked>AI 自动决策已停用（所有异常需手动处理）</template>
+                  </n-switch>
+                </div>
+                <div class="form-actions" style="margin-top:0">
+                  <n-button type="primary" :loading="busy" @click="saveLlm"><i class="fa-solid fa-floppy-disk" style="margin-right:6px"></i>保存</n-button>
+                  <n-button :loading="busy" @click="testLlm"><i class="fa-solid fa-plug-circle-check" style="margin-right:6px"></i>测试连接</n-button>
+                </div>
+                <n-alert v-if="llmTestResult" :type="llmTestResult.ok ? 'success' : 'error'" style="margin-top:14px;max-width:760px">{{ llmTestResult.text }}</n-alert>
+              </n-card>
+            </n-tab-pane>
+            <n-tab-pane v-if="user && user.is_admin" name="rules" tab="检测规则">
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:16px"><i class="fa-solid fa-sliders" style="color:#2563eb;margin-right:8px"></i>异常检测规则</div>
+                <div class="form-grid-2" style="max-width:760px">
+                  <div>
+                    <div class="form-item">
+                      <n-input-number v-model:value="rulesForm.log_burst_threshold" :min="1" :max="10000" style="width:200px" />
+                    </div>
+                    <p class="field-tip" style="margin-top:-6px">日志错误爆发阈值（条/10 分钟）：同一来源 error/fatal 日志超过该值即告警（30 分钟冷却）</p>
+                  </div>
+                  <div>
+                    <div class="form-item">
+                      <n-input-number v-model:value="rulesForm.latency_multiplier" :min="1" :max="50" :step="0.5" style="width:200px" />
+                    </div>
+                    <p class="field-tip" style="margin-top:-6px">响应时间突增倍数：最近一次响应超过 24h 均值 × 该倍数且 &gt; 2 秒时告警</p>
+                  </div>
+                </div>
+                <n-alert type="info" style="margin:16px 0;max-width:760px">网站离线 / 恢复通知：目标失败即告警，恢复时按目标设置发送通知，故障期间不重复轰炸。</n-alert>
+                <div class="form-actions" style="margin-top:0">
+                  <n-button type="primary" :loading="busy" @click="saveRules"><i class="fa-solid fa-floppy-disk" style="margin-right:6px"></i>保存规则</n-button>
+                </div>
+              </n-card>
+            </n-tab-pane>
+          </n-tabs>
+        </div>
+
+        <!-- ============ 用户管理 ============ -->
+        <div v-if="view === 'users'">
+          <div class="view-head">
+            <h2>用户管理</h2>
+            <span class="view-sub">管理员账号与权限</span>
+            <span class="spacer"></span>
+            <n-button type="primary" @click="showUserModal = true"><i class="fa-solid fa-user-plus" style="margin-right:6px"></i>新建用户</n-button>
+          </div>
+          <n-card class="pad-card" content-style="padding:8px 12px 12px">
+            <n-data-table v-if="users.length" :columns="userCols" :data="users" :row-key="r => r.id" :bordered="false" :single-line="false" :max-height="640" :scroll-x="1360" />
+          </n-card>
+          <n-modal v-model:show="showUserModal" preset="card" title="新建用户" style="width:460px;max-width:92vw" :mask-closable="false">
+            <div class="form-item">
+              <n-input v-model:value="userModal.username" placeholder="用户名（3-32 位）" clearable>
+                <template #prefix><i class="fa-regular fa-user"></i></template>
+              </n-input>
+            </div>
+            <div class="form-item">
+              <n-input v-model:value="userModal.email" placeholder="邮箱（可选）" clearable>
+                <template #prefix><i class="fa-regular fa-envelope"></i></template>
+              </n-input>
+            </div>
+            <div class="form-item">
+              <n-input v-model:value="userModal.password" placeholder="初始密码（至少 6 位）" clearable>
+                <template #prefix><i class="fa-solid fa-lock"></i></template>
+              </n-input>
+            </div>
+            <div class="form-item">
+              <n-select v-model:value="userModal.role" :options="roleOptions" />
+            </div>
+            <template #footer>
+              <div style="display:flex;justify-content:flex-end;gap:10px">
+                <n-button @click="showUserModal = false">取消</n-button>
+                <n-button type="primary" :loading="busy" @click="doCreateUser">创建</n-button>
+              </div>
+            </template>
+          </n-modal>
+        </div>
+
+        <!-- ============ 个人资料 ============ -->
+        <div v-if="view === 'profile'">
+          <div class="view-head">
+            <h2>个人资料</h2>
+            <span class="spacer"></span>
+            <n-button quaternary size="small" @click="go('dashboard')"><i class="fa-solid fa-arrow-left" style="margin-right:6px"></i>返回仪表盘</n-button>
+          </div>
+          <n-grid cols="1 l:2" :x-gap="16" :y-gap="16" responsive="screen">
+            <n-grid-item>
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:14px"><i class="fa-regular fa-id-badge" style="color:#2563eb;margin-right:8px"></i>账号信息</div>
+                <div class="detail-grid">
+                  <div><span class="detail-k">用户名</span><span class="detail-v">{{ user && user.username }}</span></div>
+                  <div><span class="detail-k">邮箱</span><span class="detail-v">{{ (user && user.email) || '-' }}</span></div>
+                  <div><span class="detail-k">角色</span><span class="detail-v">{{ user && (user.is_admin ? '管理员' : '普通用户') }}</span></div>
+                </div>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:14px"><i class="fa-solid fa-key" style="color:#2563eb;margin-right:8px"></i>修改密码</div>
+                <div class="form-item">
+                  <n-input v-model:value="pwForm.old_password" type="password" show-password-map placeholder="原密码">
+                    <template #prefix><i class="fa-solid fa-lock"></i></template>
+                  </n-input>
+                </div>
+                <div class="form-item">
+                  <n-input v-model:value="pwForm.new_password" type="password" show-password-map placeholder="新密码（至少 6 位）">
+                    <template #prefix><i class="fa-solid fa-lock"></i></template>
+                  </n-input>
+                </div>
+                <n-button type="primary" :loading="busy" @click="changePw">修改密码</n-button>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ 全局 Toast ============ -->
+  <div class="toast-wrap">
+    <transition-group name="toast">
+      <div v-for="t in toasts" :key="t.id" :class="['toast', 'toast-' + t.type]">
+        <i :class="toastIcon(t.type)"></i>{{ t.msg }}
+      </div>
+    </transition-group>
+  </div>
+
+</n-config-provider>
+</div>
+
+<script src="/assets/vendor/vue.global.js"></script>
+<script src="/assets/vendor/naive-ui.min.js"></script>
+<script src="/assets/vendor/chart.umd.js"></script>
+<script src="/assets/vendor/marked.min.js"></script>
+<script src="/assets/app.js?v=6"></script>
+</body>
+</html>
