@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="build" content="status-v6">
+<meta name="build" content="status-v7">
 <title>服务状态 - SiteSentry</title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
@@ -52,23 +52,30 @@
   .overall.bad { background: rgba(220, 38, 38, .2); color: #fca5a5; }
   .overall .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-  .updated { color: #64748b; font-size: 12px; margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .admin-link {
-    color: #cbd5e1; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.08);
-    border: 1px solid rgba(255,255,255,.14); text-decoration: none; transition: all .16s;
-  }
-  .admin-link:hover { background: rgba(255,255,255,.16); color: #fff; text-decoration: none; }
+  .updated { color: #64748b; font-size: 12px; margin-top: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
   .main { max-width: 960px; margin: -40px auto 40px; padding: 0 20px; }
-  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+  .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px; }
   .card {
-    background: var(--card); border-radius: 12px; padding: 16px 18px;
+    background: var(--card); border: 1px solid #e8edf4; border-radius: 14px; padding: 16px 18px 14px;
     box-shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 4px 16px rgba(15, 23, 42, .04);
+    transition: transform .18s, box-shadow .18s, border-color .18s;
   }
-  .card .n { font-size: 26px; font-weight: 700; }
-  .card .l { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
-  .card .n.ok { color: var(--ok); } .card .n.down { color: var(--down); }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15, 23, 42, .09); }
+  .c-ico {
+    width: 36px; height: 36px; border-radius: 10px; margin-bottom: 10px; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .c-total .c-ico { background: linear-gradient(135deg, #60a5fa, #2563eb); box-shadow: 0 4px 10px rgba(37, 99, 235, .28); }
+  .c-up .c-ico { background: linear-gradient(135deg, #4ade80, #16a34a); box-shadow: 0 4px 10px rgba(22, 163, 74, .28); }
+  .c-down .c-ico { background: linear-gradient(135deg, #f87171, #dc2626); box-shadow: 0 4px 10px rgba(220, 38, 38, .26); }
+  .c-maint .c-ico { background: linear-gradient(135deg, #94a3b8, #64748b); box-shadow: 0 4px 10px rgba(100, 116, 139, .26); }
+  .c-open .c-ico { background: linear-gradient(135deg, #fbbf24, #d97706); box-shadow: 0 4px 10px rgba(217, 119, 6, .28); }
+  .c-val { font-size: 28px; font-weight: 800; line-height: 1.15; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .c-l { font-size: 12.5px; color: var(--ink-2); margin-top: 3px; font-weight: 500; }
+  .c-up .c-val { color: var(--ok); }
+  .c-maint .c-val { color: #475569; }
+  .c-val.danger { color: var(--down) !important; }
 
   .sec {
     background: var(--card); border-radius: 12px; margin-bottom: 22px;
@@ -80,6 +87,10 @@
     border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 700;
   }
   .sec-hd i { color: var(--primary); }
+  .sec-count {
+    margin-left: auto; background: #eff6ff; color: #2563eb;
+    font-size: 12px; font-weight: 700; padding: 2px 11px; border-radius: 999px;
+  }
   .trow { border-bottom: 1px solid var(--line); }
   .trow:last-child { border-bottom: none; }
   .trow-hd {
@@ -153,6 +164,9 @@
   .ft a { color: var(--ink-2); }
   .ft i { margin-right: 4px; }
 
+  @media (max-width: 900px) {
+    .cards { grid-template-columns: repeat(3, 1fr); }
+  }
   @media (max-width: 640px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
     .hd { padding: 22px 16px 56px; }
@@ -179,21 +193,21 @@
       </div>
       <div id="overall" class="overall ok"><span class="dot"></span><span id="overallText">正在加载…</span></div>
     </div>
-    <div class="updated"><span id="updated">—</span><a class="admin-link" href="/admin" target="_blank"><i class="fa-solid fa-shield-halved"></i>管理控制台</a></div>
+    <div class="updated"><span id="updated">—</span></div>
   </div>
 </div>
 
 <div class="main">
   <div class="cards">
-    <div class="card"><div class="n" id="cTotal">-</div><div class="l">监控站点</div></div>
-    <div class="card"><div class="n ok" id="cUp">-</div><div class="l">在线</div></div>
-    <div class="card"><div class="n down" id="cDown">-</div><div class="l">离线</div></div>
-    <div class="card"><div class="n" id="cMaint" style="color:#64748b">-</div><div class="l">维护中</div></div>
-    <div class="card"><div class="n" id="cOpen">-</div><div class="l">未解决事件</div></div>
+    <div class="card c-total"><span class="c-ico"><i class="fa-solid fa-globe"></i></span><div class="c-val" id="cTotal">-</div><div class="c-l">监控站点</div></div>
+    <div class="card c-up"><span class="c-ico"><i class="fa-solid fa-circle-check"></i></span><div class="c-val" id="cUp">-</div><div class="c-l">在线</div></div>
+    <div class="card c-down"><span class="c-ico"><i class="fa-solid fa-circle-xmark"></i></span><div class="c-val" id="cDown">-</div><div class="c-l">离线</div></div>
+    <div class="card c-maint"><span class="c-ico"><i class="fa-solid fa-wrench"></i></span><div class="c-val" id="cMaint">-</div><div class="c-l">维护中</div></div>
+    <div class="card c-open"><span class="c-ico"><i class="fa-solid fa-bell"></i></span><div class="c-val" id="cOpen">-</div><div class="c-l">未解决事件</div></div>
   </div>
 
   <div class="sec">
-    <div class="sec-hd"><i class="fa-solid fa-server"></i>监控目标</div>
+    <div class="sec-hd"><i class="fa-solid fa-server"></i>监控目标<span class="sec-count" id="tCount"></span></div>
     <div id="targets"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中…</div></div>
   </div>
 
@@ -204,7 +218,7 @@
 </div>
 
 <div class="ft">
-  <i class="fa-solid fa-shield-halved"></i>Powered by <a href="/admin" target="_blank">SiteSentry 哨兵 · 管理控制台</a> · 每 60 秒自动刷新
+  <i class="fa-solid fa-shield-halved"></i>Powered by <b>SiteSentry 哨兵</b> · 每 60 秒自动刷新
 </div>
 
 <script>
@@ -283,6 +297,9 @@ function render() {
   $('cDown').textContent = s.targets_down;
   $('cMaint').textContent = s.targets_maint || 0;
   $('cOpen').textContent = s.open_incidents;
+  $('cDown').classList.toggle('danger', s.targets_down > 0);
+  $('cOpen').classList.toggle('danger', s.open_incidents > 0);
+  $('tCount').textContent = d.targets.length;
 
   // 目标列表
   if (!d.targets.length) {
