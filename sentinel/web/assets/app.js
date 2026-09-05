@@ -603,6 +603,16 @@
           this.$nextTick(() => { this.drawUptimeChart(); this.drawLevelChart(); });
         }).catch(e => this.toast(e.message, 'error'));
       },
+      upPct() {
+        const t = this.dash.targets;
+        if (!t || !t.total) return 0;
+        return Math.round(100 * t.up / t.total * 10) / 10;
+      },
+      avg7d() {
+        const vals = (this.dash.uptime_7d || []).map(d => d.uptime).filter(v => v != null);
+        if (!vals.length) return null;
+        return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100;
+      },
       drawUptimeChart() {
         const el = this.$refs.uptimeChart;
         if (!el) return;
