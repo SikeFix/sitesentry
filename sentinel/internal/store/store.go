@@ -54,6 +54,7 @@ var schema = []string{
 		id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 		user_id BIGINT UNSIGNED NOT NULL,
 		name VARCHAR(128) NOT NULL,
+		target_type VARCHAR(16) NOT NULL DEFAULT 'http',
 		url VARCHAR(512) NOT NULL,
 		expect_status INT NOT NULL DEFAULT 200,
 		keyword VARCHAR(255) NOT NULL DEFAULT '',
@@ -64,10 +65,12 @@ var schema = []string{
 		public TINYINT NOT NULL DEFAULT 1,
 		icon VARCHAR(512) NOT NULL DEFAULT '',
 		enabled TINYINT NOT NULL DEFAULT 1,
+		maintenance_until DATETIME NULL,
 		status ENUM('up','down','unknown') NOT NULL DEFAULT 'unknown',
 		last_check_at DATETIME NULL,
 		last_status_code INT NULL,
 		last_ms INT NULL,
+		last_cert_days INT NULL,
 		fail_streak INT NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		INDEX idx_user (user_id),
@@ -109,7 +112,7 @@ var schema = []string{
 	`CREATE TABLE IF NOT EXISTS anomalies (
 		id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 		user_id BIGINT UNSIGNED NOT NULL,
-		type ENUM('check_down','check_recovery','latency_spike','log_burst','external') NOT NULL,
+		type ENUM('check_down','check_recovery','latency_spike','log_burst','external','cert_expiring') NOT NULL,
 		severity ENUM('critical','warning') NOT NULL DEFAULT 'warning',
 		target_id BIGINT UNSIGNED NULL,
 		source VARCHAR(128) NOT NULL DEFAULT '',
@@ -199,6 +202,28 @@ func (s *Store) Migrate() error {
 			return fmt.Errorf("升级 anomalies.ai_decision 失败: %w", err)
 		}
 	}
+	// 存量库升级：monitor_targets 补 target_type 列（http / tcp 端口监测）
+	if _, err := s.DB.Exec(`ALTER TABLE monitor_targets ADD COLUMN target_type VARCHAR(16) NOT NULL DEFAULT 'http'`); err != nil {
+		if !strings.Contains(err.Error(), "Duplicate column") {
+			return fmt.Errorf("升级 monitor_targets.target_type 失败: %w", err)
+		}
+	}
+	// 存量库升级：monitor_targets 补 maintenance_until 列（维护模式，期间冻结状态不告警）
+	if _, err := s.DB.Exec(`ALTER TABLE monitor_targets ADD COLUMN maintenance_until DATETIME NULL`); err != nil {
+		if !strings.Contains(err.Error(), "Duplicate column") {
+			return fmt.Errorf("升级 monitor_targets.maintenance_until 失败: %w", err)
+		}
+	}
+	// 存量库升级：monitor_targets 补 last_cert_days 列（最近一次探测的证书剩余天数）
+	if _, err := s.DB.Exec(`ALTER TABLE monitor_targets ADD COLUMN last_cert_days INT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "Duplicate column") {
+			return fmt.Errorf("升级 monitor_targets.last_cert_days 失败: %w", err)
+		}
+	}
+	// 存量库升级：anomalies.type 枚举补 cert_expiring（SSL 证书到期异常）
+	if _, err := s.DB.Exec(`ALTER TABLE anomalies MODIFY COLUMN type ENUM('check_down','check_recovery','latency_spike','log_burst','external','cert_expiring') NOT NULL`); err != nil {
+		return fmt.Errorf("升级 anomalies.type 枚举失败: %w", err)
+	}
 	return nil
 }
 
@@ -234,6 +259,7 @@ func (s *Store) Seed(appName, baseURL string, llmKey string) error {
 		"log_burst_threshold": "10",
 		"latency_multiplier":  "3",
 		"ai_auto_resolve":     "1",
+		"ssl_warn_days":       "7",
 		"webhook_type":        "feishu",
 		"webhook_url":         "",
 	}
@@ -251,6 +277,7 @@ var newKeys = map[string]string{
 	"webhook_type":    "feishu",
 	"webhook_url":     "",
 	"ai_auto_resolve": "1",
+	"ssl_warn_days":   "7",
 }
 
 // EnsureAdmin 若无任何用户则创建初始 admin

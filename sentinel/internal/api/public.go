@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -32,6 +33,7 @@ func (h *Handler) PublicStatus(c *gin.Context) {
 	appName := h.St.GetSetting("app_name", "SiteSentry 哨兵")
 	rows, err := h.St.DB.Query(`
 		SELECT t.id, t.name, t.url, t.icon, t.status, t.last_ms, t.fail_streak,
+			(t.maintenance_until IS NOT NULL AND t.maintenance_until > NOW()) AS in_maint,
 			(SELECT ROUND(100.0*SUM(k.ok)/COUNT(*),1) FROM checks k WHERE k.target_id=t.id AND k.checked_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)) AS up24,
 			(SELECT ROUND(100.0*SUM(k.ok)/COUNT(*),1) FROM checks k WHERE k.target_id=t.id AND k.checked_at > DATE_SUB(NOW(), INTERVAL 7 DAY))   AS up7,
 			(SELECT ROUND(100.0*SUM(k.ok)/COUNT(*),1) FROM checks k WHERE k.target_id=t.id AND k.checked_at > DATE_SUB(NOW(), INTERVAL 30 DAY))  AS up30
@@ -51,28 +53,33 @@ func (h *Handler) PublicStatus(c *gin.Context) {
 		Status          string
 		LastMS          sql.NullInt64
 		FailStreak      int
+		InMaint         bool
 		Up24, Up7, Up30 interface{}
 	}
 	targets := []gin.H{}
-	total, upN, downN := 0, 0, 0
+	total, upN, downN, maintN := 0, 0, 0, 0
 	for rows.Next() {
 		var r trow
-		if rows.Scan(&r.ID, &r.Name, &r.URL, &r.Icon, &r.Status, &r.LastMS, &r.FailStreak, &r.Up24, &r.Up7, &r.Up30) == nil {
+		if rows.Scan(&r.ID, &r.Name, &r.URL, &r.Icon, &r.Status, &r.LastMS, &r.FailStreak, &r.InMaint, &r.Up24, &r.Up7, &r.Up30) == nil {
 			total++
+			if r.InMaint {
+				maintN++
+			}
 			if r.Status == "up" {
 				upN++
 			} else if r.Status == "down" {
 				downN++
 			}
 			item := gin.H{
-				"id":         r.ID,
-				"name":       r.Name,
-				"url":        r.URL,
-				"icon":       r.Icon,
-				"status":     r.Status,
-				"uptime_24h": publicScanFloat(r.Up24),
-				"uptime_7d":  publicScanFloat(r.Up7),
-				"uptime_30d": publicScanFloat(r.Up30),
+				"id":             r.ID,
+				"name":           r.Name,
+				"url":            r.URL,
+				"icon":           r.Icon,
+				"status":         r.Status,
+				"in_maintenance": r.InMaint,
+				"uptime_24h":     publicScanFloat(r.Up24),
+				"uptime_7d":      publicScanFloat(r.Up7),
+				"uptime_30d":     publicScanFloat(r.Up30),
 			}
 			if r.LastMS.Valid {
 				item["last_ms"] = r.LastMS.Int64
@@ -130,10 +137,11 @@ func (h *Handler) PublicStatus(c *gin.Context) {
 		"app_name": appName,
 		"overall":  overall,
 		"summary": gin.H{
-			"targets_total":  total,
-			"targets_up":     upN,
-			"targets_down":   downN,
-			"open_incidents": countOpenIncidents(h),
+			"targets_total":   total,
+			"targets_up":      upN,
+			"targets_down":    downN,
+			"targets_maint":   maintN,
+			"open_incidents":  countOpenIncidents(h),
 		},
 		"targets":   targets,
 		"incidents": incidents,
@@ -303,4 +311,81 @@ func (h *Handler) PublicIcon(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "public, max-age=3600")
 	c.Data(http.StatusOK, ct, data)
+}
+
+// GetBadge 可嵌入的状态徽章（shields.io 风格 SVG）：
+// 在任意网页/README 中放置 <img src="https://your-domain/api/public/badge/1" alt="status"> 即可。
+// 内容：在线（含 24h 可用率）/ 离线 / 维护中 / 无数据，60 秒缓存。
+func (h *Handler) GetBadge(c *gin.Context) {
+	id, okk := idParam(c)
+	if !okk {
+		badReq(c, "无效 ID")
+		return
+	}
+	var name, status, targetType string
+	var pub, inMaint int
+	var up24 interface{}
+	err := h.St.DB.QueryRow(`
+		SELECT name, status, target_type, public,
+		       (maintenance_until IS NOT NULL AND maintenance_until > NOW()),
+		       (SELECT ROUND(100.0*SUM(ok)/COUNT(*),1) FROM checks k
+		        WHERE k.target_id = ? AND k.checked_at > DATE_SUB(NOW(), INTERVAL 24 HOUR))
+		FROM monitor_targets WHERE id = ?`, id, id).
+		Scan(&name, &status, &targetType, &pub, &inMaint, &up24)
+	if err != nil || pub != 1 {
+		notFound(c, "目标不存在或未公开")
+		return
+	}
+
+	label := name
+	if runes := []rune(label); len(runes) > 12 {
+		label = string(runes[:12]) + "…"
+	}
+	rightText, rightColor := "无数据", "#9f9f9f"
+	switch {
+	case inMaint == 1:
+		rightText, rightColor = "维护中", "#9f9f9f"
+	case status == "up":
+		rightText = "在线"
+		if f := publicScanFloat(up24); f != nil {
+			rightText += fmt.Sprintf(" %.1f%%", *f)
+		}
+		rightColor = "#4caf50"
+	case status == "down":
+		rightText, rightColor = "离线", "#e05d5d"
+	}
+
+	// 宽度估算：ASCII 约 6.6px/字，CJK 约 13px/字（字号 11）
+	widthOf := func(s string) int {
+		w := 0
+		for _, ch := range s {
+			if ch > 0x2E7F {
+				w += 13
+			} else {
+				w += 7
+			}
+		}
+		return w + 16 // 两侧留白
+	}
+	leftW := widthOf(label)
+	rightW := widthOf(rightText)
+	totalW := leftW + rightW
+
+	svg := fmt.Sprintf(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20" role="img">`+
+			`<title>%s: %s</title>`+
+			`<rect width="%d" height="20" rx="3" fill="#55585e"/>`+
+			`<path d="M %d 0 H %d A 3 3 0 0 1 %d 3 V 17 A 3 3 0 0 1 %d 20 H %d Z" fill="%s"/>`+
+			`<text x="%d" y="14" text-anchor="middle" font-family="Verdana,DejaVu Sans,Helvetica,Arial,sans-serif" font-size="11" fill="#fff">%s</text>`+
+			`<text x="%d" y="14" text-anchor="middle" font-family="Verdana,DejaVu Sans,Helvetica,Arial,sans-serif" font-size="11" fill="#fff">%s</text>`+
+			`</svg>`,
+		totalW, label, rightText,
+		totalW,
+		leftW, totalW-3, totalW, totalW, leftW, rightColor,
+		leftW/2, label,
+		leftW+rightW/2, rightText,
+	)
+	c.Header("Cache-Control", "public, max-age=60")
+	c.Header("Content-Type", "image/svg+xml; charset=utf-8")
+	c.String(http.StatusOK, svg)
 }

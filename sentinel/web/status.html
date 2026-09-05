@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="build" content="status-v5">
+<meta name="build" content="status-v6">
 <title>服务状态 - SiteSentry</title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
@@ -96,6 +96,7 @@
   .sdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
   .sdot.up { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
   .sdot.down { background: var(--down); box-shadow: 0 0 0 3px var(--down-bg); }
+  .sdot.maint { background: #94a3b8; box-shadow: 0 0 0 3px #f1f5f9; }
   .sdot.other { background: var(--ink-3); }
   .tname { font-weight: 600; font-size: 14px; }
   .turl { font-size: 12px; color: var(--ink-3); }
@@ -109,6 +110,8 @@
   .chip.good b { color: var(--ok); }
   .chip.bad { background: var(--down-bg); color: var(--down); }
   .chip.bad b { color: var(--down); }
+  .chip.maint { background: #f1f5f9; color: #475569; }
+  .chip.maint b { color: #475569; }
   .caret { color: var(--ink-3); font-size: 12px; transition: transform .2s; }
   .trow.open .caret { transform: rotate(180deg); }
 
@@ -185,6 +188,7 @@
     <div class="card"><div class="n" id="cTotal">-</div><div class="l">监控站点</div></div>
     <div class="card"><div class="n ok" id="cUp">-</div><div class="l">在线</div></div>
     <div class="card"><div class="n down" id="cDown">-</div><div class="l">离线</div></div>
+    <div class="card"><div class="n" id="cMaint" style="color:#64748b">-</div><div class="l">维护中</div></div>
     <div class="card"><div class="n" id="cOpen">-</div><div class="l">未解决事件</div></div>
   </div>
 
@@ -208,7 +212,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
-const TYPE_LABEL = { check_down: '站点离线', check_recovery: '站点恢复', latency_spike: '响应变慢', log_burst: '日志激增', reported: '上报异常' };
+const TYPE_LABEL = { check_down: '站点离线', check_recovery: '站点恢复', latency_spike: '响应变慢', log_burst: '日志激增', cert_expiring: '证书到期', reported: '上报异常' };
 const SEV_LABEL = { critical: '严重', warning: '警告', info: '提示' };
 const SEV_CLASS = { critical: 'bad', warning: 'warn', info: '' };
 
@@ -277,6 +281,7 @@ function render() {
   $('cTotal').textContent = s.targets_total;
   $('cUp').textContent = s.targets_up;
   $('cDown').textContent = s.targets_down;
+  $('cMaint').textContent = s.targets_maint || 0;
   $('cOpen').textContent = s.open_incidents;
 
   // 目标列表
@@ -284,7 +289,7 @@ function render() {
     $('targets').innerHTML = '<div class="empty"><i class="fa-solid fa-inbox"></i>暂无公开的监控目标</div>';
   } else {
     $('targets').innerHTML = d.targets.map((t) => {
-      const st = t.status === 'up' ? 'up' : (t.status === 'down' ? 'down' : 'other');
+      const st = t.in_maintenance ? 'maint' : (t.status === 'up' ? 'up' : (t.status === 'down' ? 'down' : 'other'));
       return `<div class="trow" data-id="${t.id}">
         <div class="trow-hd">
           ${iconImg(t.icon)}
@@ -294,6 +299,7 @@ function render() {
             <a class="turl" href="${esc(t.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t.url)}</a>
           </div>
           <div class="chips">
+            ${t.in_maintenance ? '<span class="chip maint">维护中 · 暂不告警</span>' : ''}
             ${t.last_ms != null ? `<span class="chip"><b>${t.last_ms}</b> ms</span>` : ''}
             ${upChip('24h', t.uptime_24h)}
             ${upChip('7d', t.uptime_7d)}

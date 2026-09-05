@@ -69,8 +69,9 @@ func (s *Scheduler) safeTick() {
 // checkDueTargets 探测所有到期目标
 func (s *Scheduler) checkDueTargets() int {
 	rows, err := s.St.DB.Query(
-		`SELECT id, user_id, name, url, expect_status, keyword, interval_sec, timeout_sec,
-		        notify_emails, notify_recovery, status
+		`SELECT id, user_id, name, url, target_type, expect_status, keyword, interval_sec, timeout_sec,
+		        notify_emails, notify_recovery, status,
+		        (maintenance_until IS NOT NULL AND maintenance_until > NOW()) AS in_maint
 		 FROM monitor_targets
 		 WHERE enabled = 1 AND (last_check_at IS NULL OR last_check_at <= DATE_SUB(NOW(), INTERVAL interval_sec SECOND))
 		 ORDER BY last_check_at ASC LIMIT 50`)
@@ -83,6 +84,7 @@ func (s *Scheduler) checkDueTargets() int {
 		userID        uint64
 		name          string
 		url           string
+		targetType    string
 		expectStatus  int
 		keyword       string
 		intervalSec   int
@@ -90,12 +92,13 @@ func (s *Scheduler) checkDueTargets() int {
 		notifyEmails  string
 		notifyRecover int
 		status        string
+		inMaint       bool
 	}
 	var list []due
 	for rows.Next() {
 		var d due
-		if rows.Scan(&d.id, &d.userID, &d.name, &d.url, &d.expectStatus, &d.keyword,
-			&d.intervalSec, &d.timeoutSec, &d.notifyEmails, &d.notifyRecover, &d.status) == nil {
+		if rows.Scan(&d.id, &d.userID, &d.name, &d.url, &d.targetType, &d.expectStatus, &d.keyword,
+			&d.intervalSec, &d.timeoutSec, &d.notifyEmails, &d.notifyRecover, &d.status, &d.inMaint) == nil {
 			list = append(list, d)
 		}
 	}
@@ -103,14 +106,22 @@ func (s *Scheduler) checkDueTargets() int {
 
 	count := 0
 	for _, d := range list {
-		r := monitor.Probe(d.url, d.timeoutSec, d.expectStatus, d.keyword)
-		becameDown, becameUp := s.Det.RecordCheck(d.id, d.userID, r)
-		s.Det.AfterCheck(detector.TargetInfo{
-			ID: d.id, UserID: d.userID, Name: d.name, URL: d.url,
-			NotifyEmails: d.notifyEmails, NotifyRecover: d.notifyRecover,
-		}, becameDown, becameUp, r)
+		var r monitor.Result
+		if d.targetType == "tcp" {
+			r = monitor.ProbeTCP(d.url, d.timeoutSec)
+		} else {
+			r = monitor.Probe(d.url, d.timeoutSec, d.expectStatus, d.keyword)
+		}
+		becameDown, becameUp := s.Det.RecordCheck(d.id, d.userID, r, d.inMaint)
+		// 维护模式：只记录探测结果，不评估异常（状态机已冻结）
+		if !d.inMaint {
+			s.Det.AfterCheck(detector.TargetInfo{
+				ID: d.id, UserID: d.userID, Name: d.name, URL: d.url,
+				NotifyEmails: d.notifyEmails, NotifyRecover: d.notifyRecover,
+			}, becameDown, becameUp, r)
+		}
 		count++
-		if !r.OK {
+		if !r.OK && !d.inMaint {
 			log.Printf("[scheduler] 目标 %d(%s) 探测失败: %s", d.id, d.name, r.Err)
 		}
 	}

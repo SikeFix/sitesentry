@@ -67,6 +67,7 @@
         // 目标
         targets: [],
         targetModal: { show: false, id: null, f: {} },
+        maintModal: { show: false, id: null, name: '', hours: 4 },
         detail: { points: [], stats: null },
         detailHours: 24,
 
@@ -106,7 +107,7 @@
         llmForm: { llm_base_url: '', llm_model: '', llm_api_key: '' },
         llmEnabled: true,
         aiAutoResolve: true,
-        rulesForm: { log_burst_threshold: 10, latency_multiplier: 3 },
+        rulesForm: { log_burst_threshold: 10, latency_multiplier: 3, ssl_warn_days: 7 },
         webhookForm: { type: 'feishu', url: '' },
         webhookTypeOptions: [
           { label: '飞书机器人', value: 'feishu' },
@@ -149,7 +150,16 @@
         anomTypeOptions: [
           { label: '全部类型', value: '' }, { label: '网站离线', value: 'check_down' },
           { label: '网站恢复', value: 'check_recovery' }, { label: '响应变慢', value: 'latency_spike' },
-          { label: '日志爆发', value: 'log_burst' }, { label: '外部上报', value: 'external' },
+          { label: '日志爆发', value: 'log_burst' }, { label: '证书到期', value: 'cert_expiring' },
+          { label: '外部上报', value: 'external' },
+        ],
+        targetTypeOptions: [
+          { label: 'HTTP / HTTPS 网站', value: 'http' },
+          { label: 'TCP 端口（数据库 / API 等）', value: 'tcp' },
+        ],
+        maintHoursOptions: [
+          { label: '1 小时', value: 1 }, { label: '4 小时', value: 4 },
+          { label: '8 小时', value: 8 }, { label: '24 小时（一整天）', value: 24 },
         ],
         anomSevOptions: [
           { label: '全部级别', value: '' }, { label: '严重', value: 'critical' }, { label: '警告', value: 'warning' },
@@ -231,11 +241,26 @@
         return [
           {
             title: '状态', key: 'status', width: 92,
-            render: r => h(NTag, { size: 'small', round: true, bordered: false, type: r.status === 'up' ? 'success' : (r.status === 'down' ? 'error' : 'default') }, () => this.statusLabel(r)),
+            render: r => r.in_maintenance
+              ? h(NTag, { size: 'small', round: true, bordered: false, type: 'default' }, () => '维护中')
+              : h(NTag, { size: 'small', round: true, bordered: false, type: r.status === 'up' ? 'success' : (r.status === 'down' ? 'error' : 'default') }, () => this.statusLabel(r)),
           },
           { title: '名称', key: 'name', minWidth: 120, render: r => h('a', { class: 'cell-link', onClick: () => this.go('target-detail', r.id) }, r.name) },
+          {
+            title: '类型', key: 'target_type', width: 64,
+            render: r => h(NTag, { size: 'tiny', round: true, bordered: false, type: r.target_type === 'tcp' ? 'info' : 'default' }, () => r.target_type === 'tcp' ? 'TCP' : 'HTTP'),
+          },
           { title: 'URL', key: 'url', minWidth: 180, ellipsis: { tooltip: true }, render: r => h('span', { class: 'cell-mono' }, r.url) },
           { title: '间隔', key: 'interval_sec', width: 88, render: r => this.fmtInterval(r.interval_sec) },
+          {
+            title: '证书', key: 'last_cert_days', width: 88,
+            render: r => {
+              if (r.target_type === 'tcp' || r.last_cert_days == null) return h('span', { class: 'cell-muted' }, '-');
+              const d = r.last_cert_days;
+              const style = d < 0 ? 'color:#dc2626;font-weight:700' : (d <= 7 ? 'color:#d97706;font-weight:700' : '');
+              return h('span', { style }, d < 0 ? '已过期' : d + ' 天');
+            },
+          },
           {
             title: '24h 可用率', key: 'uptime_24h', width: 100,
             render: r => r.uptime_24h != null ? r.uptime_24h + '%' : h('span', { class: 'cell-muted' }, '暂无数据'),
@@ -250,9 +275,15 @@
             render: r => r.fail_streak > 0 ? h('span', { style: 'color:#dc2626;font-weight:700' }, r.fail_streak + ' 次') : h('span', { class: 'cell-muted' }, '-'),
           },
           {
-            title: '操作', key: 'actions', width: 250,
+            title: '操作', key: 'actions', width: 300,
             render: r => h(NSpace, { size: 6 }, () => [
               h(NButton, { size: 'tiny', secondary: true, type: 'primary', loading: r._busy, onClick: () => this.checkNow(r) }, () => '立即检查'),
+              r.in_maintenance
+                ? h(NPopconfirm, { positiveText: '结束维护', negativeText: '取消', onPositiveClick: () => this.endMaintenance(r) }, {
+                    trigger: () => h(NButton, { size: 'tiny', secondary: true, type: 'warning' }, () => '结束维护'),
+                    default: () => h('span', null, '结束维护后，目标将立即恢复正常告警。'),
+                  })
+                : h(NButton, { size: 'tiny', secondary: true, onClick: () => this.openMaintModal(r) }, () => '维护'),
               h(NButton, { size: 'tiny', secondary: true, onClick: () => this.openTargetModal(r) }, () => '编辑'),
               h(NButton, { size: 'tiny', secondary: true, type: r.enabled ? 'default' : 'success', onClick: () => this.toggleTarget(r) }, () => r.enabled ? '停用' : '启用'),
               h(NPopconfirm, { positiveText: '删除', negativeText: '取消', onPositiveClick: () => this.delTarget(r) }, {
@@ -487,8 +518,27 @@
         if (s < 3600) return (s / 60) + ' 分钟';
         return (s / 3600) + ' 小时';
       },
+      openMaintModal(t) {
+        this.maintModal = { show: true, id: t.id, name: t.name, hours: 4 };
+      },
+      saveMaintenance() {
+        api('POST', '/targets/' + this.maintModal.id + '/maintenance', { hours: this.maintModal.hours })
+          .then(() => { this.toast('已进入维护模式，期间不产生告警', 'success'); this.maintModal.show = false; this.loadTargets(); })
+          .catch(e => this.toast(e.message, 'error'));
+      },
+      endMaintenance(t) {
+        api('DELETE', '/targets/' + t.id + '/maintenance', {})
+          .then(() => { this.toast('已结束维护模式', 'success'); this.loadTargets(); })
+          .catch(e => this.toast(e.message, 'error'));
+      },
+      // 公开状态徽章嵌入代码（目标详情页展示）
+      badgeEmbedCode() {
+        if (!this.detail || !this.detail.id) return '';
+        const base = (this.settings && this.settings.base_url) || window.location.origin;
+        return '<img src="' + base + '/api/public/badge/' + this.detail.id + '" alt="' + (this.detail.name || '') + ' 状态" />';
+      },
       typeLabel(t) {
-        return { check_down: '网站离线', check_recovery: '网站恢复', latency_spike: '响应变慢', log_burst: '日志爆发', external: '外部上报' }[t] || t;
+        return { check_down: '网站离线', check_recovery: '网站恢复', latency_spike: '响应变慢', log_burst: '日志爆发', cert_expiring: '证书到期', external: '外部上报' }[t] || t;
       },
       sevLabel(s) { return s === 'critical' ? '严重' : '警告'; },
       statusLabel(o) { const m = { up: '在线', down: '离线', unknown: '未检查' }; return (o && m[o.status]) || '-'; },
@@ -607,22 +657,24 @@
         this.targetModal = t ? {
           show: true, id: t.id,
           f: {
-            name: t.name, url: t.url, expect_status: t.expect_status, keyword: t.keyword,
+            name: t.name, target_type: t.target_type || 'http', url: t.url,
+            expect_status: t.expect_status, keyword: t.keyword,
             interval_sec: t.interval_sec, timeout_sec: t.timeout_sec,
             notify_emails: t.notify_emails, notify_recovery: !!t.notify_recovery, public: t.public === undefined ? true : !!t.public,
             icon: t.icon || '',
           },
         } : {
           show: true, id: null,
-          f: { name: '', url: '', expect_status: 200, keyword: '', interval_sec: 60, timeout_sec: 10, notify_emails: '', notify_recovery: true, public: true, icon: '' },
+          f: { name: '', target_type: 'http', url: '', expect_status: 200, keyword: '', interval_sec: 60, timeout_sec: 10, notify_emails: '', notify_recovery: true, public: true, icon: '' },
         };
       },
       saveTarget() {
         const f = this.targetModal.f;
-        if (!f.name || !f.url) { this.toast('请填写名称和 URL', 'warning'); return; }
+        if (!f.name || !f.url) { this.toast('请填写名称和地址', 'warning'); return; }
         this.busy = true;
         const req = {
-          name: f.name, url: f.url, expect_status: Number(f.expect_status), keyword: f.keyword,
+          name: f.name, target_type: f.target_type, url: f.url,
+          expect_status: Number(f.expect_status), keyword: f.keyword,
           interval_sec: Number(f.interval_sec), timeout_sec: Number(f.timeout_sec),
           notify_emails: f.notify_emails, notify_recovery: f.notify_recovery ? 1 : 0, public: f.public ? 1 : 0,
           icon: f.icon || '',
@@ -644,7 +696,7 @@
       },
       toggleTarget(t) {
         api('PUT', '/targets/' + t.id, {
-          name: t.name, url: t.url, expect_status: t.expect_status, keyword: t.keyword,
+          name: t.name, target_type: t.target_type, url: t.url, expect_status: t.expect_status, keyword: t.keyword,
           interval_sec: t.interval_sec, timeout_sec: t.timeout_sec,
           notify_emails: t.notify_emails, notify_recovery: t.notify_recovery, public: t.public, enabled: t.enabled ? 0 : 1,
         }).then(() => {
@@ -670,9 +722,14 @@
         ]).then(([list, d]) => {
           const t = list.find(x => x.id === id);
           this.detail = {
+            id: t ? t.id : id,
             name: t ? t.name : ('目标 #' + id),
             url: t ? t.url : '',
+            target_type: t ? (t.target_type || 'http') : 'http',
             status: t ? t.status : null,
+            in_maintenance: t ? !!t.in_maintenance : false,
+            maintenance_until: t ? t.maintenance_until : null,
+            last_cert_days: t ? t.last_cert_days : null,
             points: d.points, stats: d.stats,
           };
           this.$nextTick(() => this.drawTargetChart());
@@ -912,6 +969,7 @@
           this.rulesForm = {
             log_burst_threshold: Number(s.log_burst_threshold || 10),
             latency_multiplier: Number(s.latency_multiplier || 3),
+            ssl_warn_days: Number(s.ssl_warn_days || 7),
           };
           this.webhookForm = { type: s.webhook_type || 'feishu', url: s.webhook_url || '' };
         }).catch(e => this.toast(e.message, 'error'));
@@ -957,6 +1015,7 @@
         api('POST', '/settings', {
           log_burst_threshold: String(this.rulesForm.log_burst_threshold),
           latency_multiplier: String(this.rulesForm.latency_multiplier),
+          ssl_warn_days: String(this.rulesForm.ssl_warn_days),
         })
           .then(() => this.toast('已保存', 'success'))
           .catch(e => this.toast(e.message, 'error'))

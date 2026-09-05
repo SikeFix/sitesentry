@@ -9,9 +9,19 @@
 ## 功能特性
 
 - **网站状态监测**
+  - 两种探测类型：**HTTP/HTTPS 网站**（状态码 / 关键词断言）与 **TCP 端口**（数据库、内部 API 等 `host:port` 连通性探测）
   - 多目标管理：URL、期望状态码、关键词断言、超时、探测间隔（30s~1h）、独立通知邮箱、恢复通知开关
   - 状态机 `up / down / unknown`，原子翻转判定，故障期间不重复告警
   - 探测历史、响应时间曲线、24h 可用率统计；手动「立即检查」
+- **SSL 证书到期提醒**
+  - 每次 HTTPS 探测自动读取证书到期日，剩余天数 ≤ 阈值（默认 7 天，可调 1-90）生成告警；**已过期升级为严重级**
+  - 目标列表 / 详情页实时显示证书剩余天数；同目标 24h 内不重复告警
+- **维护模式（静默告警）**
+  - 计划内变更 / 升级时一键进入维护（1/4/8/24 小时，最长 30 天）：期间**照常探测并记录历史，但不产生任何告警**，状态显示「维护中」
+  - 到期自动恢复，也可提前手动结束；公开状态页同步显示维护标记
+- **状态徽章（可嵌入 SVG）**
+  - 每个公开目标生成 shields 风格实时徽章：`<img src="https://your-domain/api/public/badge/1">`
+  - 显示「在线 · 24h 可用率 / 离线 / 维护中」，60 秒缓存、无需登录，可直接放进你的网站、项目主页或 README；目标详情页提供一键复制嵌入代码
 - **异常检测（规则引擎）**
   - 网站离线（up→down 翻转即告警，**恢复时自动关闭对应离线异常**）
   - 响应时间突增（最近一次 > 24h 均值 × 系数 且 > 2s）
@@ -134,6 +144,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sentinel .
 | `smtp_host` / `smtp_port` / `smtp_mode` / `smtp_user` / `smtp_pass` / `smtp_from_name` | SMTP 通道（`ssl` 或 `starttls`） |
 | `default_notify_emails` | 全局默认通知邮箱（逗号分隔） |
 | `log_burst_threshold` / `latency_multiplier` | 日志爆发阈值（条/10min）、慢响应倍数 |
+| `ssl_warn_days` | SSL 证书到期提前告警天数（1-90，默认 7；已过期为严重级） |
 | `webhook_type` / `webhook_url` | Webhook 渠道（feishu / dingtalk / wechat / custom）与地址 |
 
 ## 生产部署
@@ -211,21 +222,29 @@ server {
 |---|---|---|
 | GET | `/api/targets` | 目标列表（含 24h 可用率、平均耗时等统计） |
 | POST | `/api/targets` | 新建目标 |
-| PUT | `/api/targets/:id` | 更新（名称 / URL / 期望状态码 / 关键词 / 间隔 / 超时 / 通知邮箱 / 恢复通知 / 图标 / 公开开关） |
+| PUT | `/api/targets/:id` | 更新（名称 / 类型 / URL / 期望状态码 / 关键词 / 间隔 / 超时 / 通知邮箱 / 恢复通知 / 图标 / 公开开关） |
 | DELETE | `/api/targets/:id` | 删除（级联删除探测历史） |
 | POST | `/api/targets/:id/check` | 立即检查（一次探测并即时评估异常） |
 | GET | `/api/targets/:id/history` | 探测历史 `?hours=24` |
+| POST | `/api/targets/:id/maintenance` | 进入维护模式 `{hours: 4}` 或 `{until: "2026-09-05 18:00"}`（1 分钟~30 天；期间只记录探测、不告警） |
+| DELETE | `/api/targets/:id/maintenance` | 提前结束维护模式 |
 
-目标字段示例：
+目标字段示例（`target_type` 省略时默认 `http`）：
 
 ```json
 {
-  "name": "官网", "url": "https://example.com/",
+  "name": "官网", "target_type": "http", "url": "https://example.com/",
   "expect_status": 200, "keyword": "",
   "interval_sec": 60, "timeout_sec": 10,
   "notify_emails": "", "notify_recovery": 1,
   "public": 1, "icon": "https://example.com/favicon.ico"
 }
+```
+
+TCP 端口目标（只做连通性探测，`url` 字段填 `host:port`，状态码/关键词不适用）：
+
+```json
+{ "name": "MySQL", "target_type": "tcp", "url": "db.internal:3306", "interval_sec": 60, "timeout_sec": 5 }
 ```
 
 ### 日志
@@ -244,7 +263,7 @@ server {
 | POST | `/api/anomalies/:id/resolve` | 手动标记已处理 |
 | POST | `/api/anomalies/:id/rediagnose` | 重新 AI 诊断（会重新执行自动决策） |
 
-`type` 取值：`check_down`（网站离线）/ `check_recovery`（网站恢复，信息性事件自动关闭）/ `latency_spike`（响应变慢）/ `log_burst`（日志爆发）/ `external`（外部上报）。
+`type` 取值：`check_down`（网站离线）/ `check_recovery`（网站恢复，信息性事件自动关闭）/ `latency_spike`（响应变慢）/ `log_burst`（日志爆发）/ `cert_expiring`（SSL 证书到期/过期）/ `external`（外部上报）。
 
 ### AI 助手
 
@@ -285,6 +304,15 @@ server {
 | GET | `/api/public/status` | 状态页数据（仅 `public=1` 的目标） |
 | GET | `/api/public/targets/:id` | 单目标详情 |
 | GET | `/api/public/icon?url=<encoded>` | 图标代理（服务端抓取，绕过目标站跨域 / 防盗链；内置 SSRF 防护，禁内网地址，限 1MB） |
+| GET | `/api/public/badge/:id` | 状态徽章（shields 风格 SVG，60 秒缓存）：`在线 99.9%`（绿）/ `离线`（红）/ `维护中`（灰） |
+
+**状态徽章嵌入**：在任意支持 `<img>` 的页面（README、文档站、Wiki）中引用，无需登录：
+
+```html
+<img src="https://your-domain/api/public/badge/1" alt="站点状态" />
+```
+
+管理后台「目标详情」页可实时预览徽章并一键复制该代码。徽章地址中的域名请使用 `base_url` 设置的公网地址。
 
 ### 外部上报（token 鉴权，含 CORS）
 

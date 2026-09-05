@@ -52,7 +52,9 @@ func New(st *store.Store, lc *llm.Client, ml *mailer.Mailer) *Detector {
 // RecordCheck 落库探测结果，并用原子条件 UPDATE 判定状态迁移。
 // 返回 (becameDown, becameUp)：仅并发探测中真正触发状态翻转的一方会得到 true，
 // 从而保证 up→down / down→up 只产生一条异常。
-func (d *Detector) RecordCheck(targetID, userID uint64, r monitor.Result) (bool, bool) {
+// inMaintenance：维护模式期间只记录探测结果、冻结状态机（不翻转、不告警），
+// 维护结束后下一次真实翻转才触发异常。
+func (d *Detector) RecordCheck(targetID, userID uint64, r monitor.Result, inMaintenance bool) (bool, bool) {
 	now := time.Now()
 	okInt := 0
 	if r.OK {
@@ -69,12 +71,25 @@ func (d *Detector) RecordCheck(targetID, userID uint64, r monitor.Result) (bool,
 		`INSERT INTO checks (target_id, user_id, ok, status_code, ms, error, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		targetID, userID, okInt, r.StatusCode, r.MS, errStr, now)
 
+	var certDays interface{}
+	if r.CertDays != nil {
+		certDays = *r.CertDays
+	}
+	if inMaintenance {
+		// 维护中：仅刷新探测统计，不动状态机
+		_, _ = d.Store.DB.Exec(
+			`UPDATE monitor_targets SET last_check_at=?, last_ms=?, last_cert_days=COALESCE(?, last_cert_days) WHERE id=?`,
+			now, r.MS, certDays, targetID)
+		return false, false
+	}
+
 	var becameDown, becameUp bool
 	if !r.OK {
 		res, _ := d.Store.DB.Exec(
 			`UPDATE monitor_targets SET status='down', fail_streak=fail_streak+1,
-			 last_check_at=?, last_status_code=?, last_ms=? WHERE id=? AND status <> 'down'`,
-			now, r.StatusCode, r.MS, targetID)
+			 last_check_at=?, last_status_code=?, last_ms=?, last_cert_days=COALESCE(?, last_cert_days)
+			 WHERE id=? AND status <> 'down'`,
+			now, r.StatusCode, r.MS, certDays, targetID)
 		if res != nil {
 			if n, _ := res.RowsAffected(); n == 1 {
 				becameDown = true
@@ -83,8 +98,9 @@ func (d *Detector) RecordCheck(targetID, userID uint64, r monitor.Result) (bool,
 	} else {
 		res, _ := d.Store.DB.Exec(
 			`UPDATE monitor_targets SET status='up', fail_streak=0,
-			 last_check_at=?, last_status_code=?, last_ms=? WHERE id=? AND status <> 'up'`,
-			now, r.StatusCode, r.MS, targetID)
+			 last_check_at=?, last_status_code=?, last_ms=?, last_cert_days=COALESCE(?, last_cert_days)
+			 WHERE id=? AND status <> 'up'`,
+			now, r.StatusCode, r.MS, certDays, targetID)
 		if res != nil {
 			if n, _ := res.RowsAffected(); n == 1 {
 				becameUp = true
@@ -94,8 +110,8 @@ func (d *Detector) RecordCheck(targetID, userID uint64, r monitor.Result) (bool,
 	// 未发生翻转时也要刷新统计字段
 	if !becameDown && !becameUp {
 		_, _ = d.Store.DB.Exec(
-			`UPDATE monitor_targets SET last_check_at=?, last_status_code=?, last_ms=? WHERE id=?`,
-			now, r.StatusCode, r.MS, targetID)
+			`UPDATE monitor_targets SET last_check_at=?, last_status_code=?, last_ms=?, last_cert_days=COALESCE(?, last_cert_days) WHERE id=?`,
+			now, r.StatusCode, r.MS, certDays, targetID)
 	}
 	return becameDown, becameUp
 }
@@ -132,6 +148,10 @@ func (d *Detector) AfterCheck(t TargetInfo, becameDown, becameUp bool, r monitor
 		}
 		return
 	}
+	// SSL 证书即将到期（仅 HTTPS 在线目标）
+	if r.OK && r.CertDays != nil {
+		d.evaluateCert(t, *r.CertDays)
+	}
 	// 响应时间突增（仅在线时评估）
 	if r.OK && r.MS > 2000 {
 		var avg float64
@@ -141,6 +161,31 @@ func (d *Detector) AfterCheck(t TargetInfo, becameDown, becameUp bool, r monitor
 			d.evaluateLatency(t, r, avg)
 		}
 	}
+}
+
+// evaluateCert 证书剩余天数低于阈值时生成告警（已有未关闭的证书告警则不重复）
+func (d *Detector) evaluateCert(t TargetInfo, days int) {
+	warnDays := d.Store.GetIntSetting("ssl_warn_days", 7)
+	if days > warnDays {
+		return
+	}
+	// 24h 内该目标已生成过证书告警则不重复（含已手动关闭的，避免关完立刻再报）
+	var n int
+	if d.Store.DB.QueryRow(
+		`SELECT COUNT(*) FROM anomalies WHERE user_id=? AND type='cert_expiring' AND target_id=?
+		 AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)`,
+		t.UserID, t.ID).Scan(&n) == nil && n > 0 {
+		return
+	}
+	severity := "warning"
+	title := fmt.Sprintf("SSL 证书即将到期：%s（剩余 %d 天）", t.Name, days)
+	if days < 0 {
+		severity = "critical"
+		title = fmt.Sprintf("SSL 证书已过期：%s", t.Name)
+	}
+	detail := fmt.Sprintf("监测目标「%s」（%s）的 SSL 证书剩余 %d 天（告警阈值 %d 天）。\n请安排续签/更换证书，避免到期后 HTTPS 访问被浏览器拦截。",
+		t.Name, t.URL, days, warnDays)
+	d.CreateAnomaly(t.UserID, "cert_expiring", severity, &t.ID, t.Name, title, detail, "open")
 }
 
 func (d *Detector) evaluateLatency(t TargetInfo, r monitor.Result, avg float64) {
@@ -347,6 +392,8 @@ func typeLabelCN(t string) string {
 		return "日志爆发"
 	case "external":
 		return "外部上报"
+	case "cert_expiring":
+		return "证书到期"
 	}
 	return t
 }

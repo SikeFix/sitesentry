@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ type Result struct {
 	Err        string
 	Note       string // 附加信息（如证书到期提醒）
 	BodyLen    int
+	CertDays   *int // 最近一次 TLS 探测的证书剩余天数（负数=已过期；非 HTTPS 为 nil）
 }
 
 // Probe 对目标 URL 执行一次 HTTP 探测
@@ -69,11 +71,11 @@ func Probe(url string, timeoutSec, expectStatus int, keyword string) Result {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	r.BodyLen = len(body)
 
-	// SSL 证书到期提醒
+	// SSL 证书剩余天数（始终记录；临近到期时在 Note 中提示）
 	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-		cert := resp.TLS.PeerCertificates[0]
-		if d := time.Until(cert.NotAfter); d < 7*24*time.Hour {
-			days := int(d.Hours() / 24)
+		days := int(time.Until(resp.TLS.PeerCertificates[0].NotAfter).Hours() / 24)
+		r.CertDays = &days
+		if days <= 7 {
 			if days < 0 {
 				r.Note = "SSL 证书已过期"
 			} else {
@@ -93,6 +95,22 @@ func Probe(url string, timeoutSec, expectStatus int, keyword string) Result {
 		return r
 	}
 
+	r.OK = true
+	return r
+}
+
+// ProbeTCP 对 host:port 执行一次 TCP 连接探测（用于数据库 / API 端口等）
+func ProbeTCP(addr string, timeoutSec int) Result {
+	start := time.Now()
+	r := Result{}
+	conn, err := net.DialTimeout("tcp", addr, time.Duration(timeoutSec)*time.Second)
+	if err != nil {
+		r.MS = int(time.Since(start).Milliseconds())
+		r.Err = prettifyNetErr(err.Error())
+		return r
+	}
+	_ = conn.Close()
+	r.MS = int(time.Since(start).Milliseconds())
 	r.OK = true
 	return r
 }

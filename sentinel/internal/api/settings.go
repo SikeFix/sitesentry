@@ -25,6 +25,7 @@ var editableKeys = map[string]bool{
 	"default_notify_emails": true,
 	"log_burst_threshold": true, "latency_multiplier": true,
 	"ai_auto_resolve": true,
+	"ssl_warn_days": true,
 	"webhook_type": true, "webhook_url": true,
 }
 
@@ -42,6 +43,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 		"default_notify_emails": all["default_notify_emails"],
 		"log_burst_threshold": all["log_burst_threshold"],
 		"latency_multiplier": all["latency_multiplier"],
+		"ssl_warn_days": all["ssl_warn_days"],
 		"ai_auto_resolve": all["ai_auto_resolve"],
 	}
 	ok(c, safe)
@@ -98,6 +100,11 @@ func (h *Handler) SaveSettings(c *gin.Context) {
 		case "log_burst_threshold":
 			if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 10000 {
 				badReq(c, "log_burst_threshold 需为 1-10000")
+				return
+			}
+		case "ssl_warn_days":
+			if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 90 {
+				badReq(c, "ssl_warn_days 需为 1-90")
 				return
 			}
 		case "latency_multiplier":

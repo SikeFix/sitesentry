@@ -69,6 +69,7 @@ func NewRouter(h *Handler) *gin.Engine {
 		s.GET("/public/status", h.PublicStatus)
 		s.GET("/public/targets/:id", h.PublicTarget)
 		s.GET("/public/icon", h.PublicIcon)
+		s.GET("/public/badge/:id", h.GetBadge)
 
 		g := s.Group("", h.A.Middleware())
 		{
@@ -81,6 +82,8 @@ func NewRouter(h *Handler) *gin.Engine {
 			g.DELETE("/targets/:id", h.DeleteTarget)
 			g.POST("/targets/:id/check", h.CheckNow)
 			g.GET("/targets/:id/history", h.TargetHistory)
+			g.POST("/targets/:id/maintenance", h.SetMaintenance)
+			g.DELETE("/targets/:id/maintenance", h.EndMaintenance)
 
 			g.GET("/logs", h.ListLogs)
 			g.GET("/logs/sources", h.LogSources)
