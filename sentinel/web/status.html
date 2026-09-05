@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="build" content="status-v9">
+<meta name="build" content="status-v10">
 <title>服务状态 - SiteSentry</title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
@@ -156,8 +156,12 @@
   .s-chip.maint { background: #eef2f7; color: #475569; }
   .s-chip.other { background: #f1f5f9; color: #94a3b8; }
   .tcard-url { font-size: 12px; color: var(--ink-3); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tcard-url:hover { color: var(--primary); text-decoration: none; }
-  .tcard .caret { color: var(--ink-3); font-size: 12px; transition: transform .2s; flex: none; }
+  .tcard-ext {
+    flex: none; color: var(--ink-3); font-size: 13px; padding: 7px; border-radius: 9px;
+    transition: all .15s; text-decoration: none;
+  }
+  .tcard-ext:hover { color: var(--primary); background: #eff6ff; text-decoration: none; }
+  .tcard .caret { color: var(--ink-3); font-size: 12px; transition: transform .2s; flex: none; padding: 7px 0; }
   .tcell.open .caret { transform: rotate(180deg); }
   .tcard-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .chip {
@@ -215,14 +219,34 @@
     .tgrid { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
-    .cards { grid-template-columns: repeat(2, 1fr); }
-    .hd { padding: 22px 16px 56px; }
-    .main { margin-top: -36px; padding: 0 14px; }
-    .c-val { font-size: 23px; }
-    .tgrid { padding: 14px; gap: 12px; }
-    .detail-grid { grid-template-columns: 1fr; }
+    .hd { padding: 20px 14px 50px; }
+    .hd h1 { font-size: 19px; }
+    .overall { padding: 7px 13px; font-size: 12.5px; }
+    .hd-uptime { font-size: 11.5px; }
+    .updated { font-size: 11px; }
+    .main { margin-top: -32px; padding: 0 12px; }
+    .cards { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+    .cards .card:last-child { grid-column: span 2; }
+    .card { padding: 13px 14px 11px; }
+    .c-ico { width: 32px; height: 32px; font-size: 14px; border-radius: 9px; margin-bottom: 8px; }
+    .c-val { font-size: 22px; }
+    .c-l { font-size: 11.5px; }
+    .sec-hd { padding: 13px 14px; font-size: 14px; }
+    .s-ico { width: 26px; height: 26px; font-size: 12px; border-radius: 8px; }
+    .tgrid { padding: 12px; gap: 10px; }
+    .tcard { padding: 13px 13px 11px; }
+    .tcard .ticon { width: 38px; height: 38px; font-size: 16px; border-radius: 10px; }
+    .tcard .ticon img { width: 23px; height: 23px; }
+    .tcard-name { font-size: 14px; }
+    .tcard-stats { gap: 6px; margin-top: 10px; }
+    .tcard-stats .chip { font-size: 11px; padding: 2px 8px; }
+    .tcard-detail { padding: 4px 12px 12px; }
+    .dg { padding: 8px 10px; }
+    .dg .l { font-size: 11px; }
+    .dg .v { font-size: 15px; }
     .inc { padding: 12px 14px; }
     .inc-time { display: none; }
+    .ft { padding: 20px 14px 28px; }
   }
 </style>
 </head>
@@ -366,8 +390,9 @@ function render() {
             ${iconImg(t.icon)}
             <div class="tcard-id">
               <div class="tcard-name">${esc(t.name)}<span class="s-chip ${st}">${ST_CHIP[st]}</span></div>
-              <a class="tcard-url" href="${esc(t.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t.url)}</a>
+              <span class="tcard-url">${esc(t.url)}</span>
             </div>
+            <a class="tcard-ext" href="${esc(t.url)}" target="_blank" rel="noopener" title="访问该网站" onclick="event.stopPropagation()"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
             <i class="fa-solid fa-chevron-down caret"></i>
           </div>
           <div class="tcard-stats">
@@ -417,6 +442,9 @@ async function onRowClick(row) {
         const j = await r.json();
         if (!j.ok) throw new Error(j.error || '加载失败');
         box.innerHTML = renderDetail(j.data);
+        // 状态条默认滚到最新端（历史数据不足时左侧大片无数据灰色）
+        const bars = box.querySelector('.bars');
+        if (bars) bars.scrollLeft = bars.scrollWidth;
         box.dataset.loaded = '1';
       } catch (e) {
         box.innerHTML = '<div class="empty">详情加载失败：' + esc(e.message) + '</div>';
