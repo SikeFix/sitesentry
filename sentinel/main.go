@@ -16,6 +16,7 @@ import (
 	"sitesentry/internal/detector"
 	"sitesentry/internal/llm"
 	"sitesentry/internal/mailer"
+	"sitesentry/internal/report"
 	"sitesentry/internal/scheduler"
 	"sitesentry/internal/store"
 )
@@ -53,13 +54,14 @@ func main() {
 	lc := llm.New(st)
 	ml := mailer.New(st)
 	det := detector.New(st, lc, ml)
-	h := api.New(cfg, st, a, lc, ml, det)
+	rep := report.New(st, lc, ml)
+	h := api.New(cfg, st, a, lc, ml, det, rep)
 	router := api.NewRouter(h)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go scheduler.New(cfg, st, det, ml).Run(ctx)
+	go scheduler.New(cfg, st, det, ml, rep).Run(ctx)
 
 	srv := &http.Server{
 		Addr:         cfg.Listen,

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SiteSentry 哨兵 · 网站状态监测与日志系统</title>
-<meta name="build" content="v11-cards">
+<meta name="build" content="v12.1-space">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232563eb' d='M12 1.5l8.5 3.2v6.1c0 5.2-3.6 9.9-8.5 11.7C7.1 20.7 3.5 16 3.5 10.8V4.7L12 1.5z'/%3E%3Cpath fill='%23fff' d='M10.8 14.6l-2.3-2.3-1.4 1.4 3.7 3.7 6.1-6.1-1.4-1.4-4.7 4.7z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <link rel="stylesheet" href="/assets/style.css?v=7">
@@ -368,6 +368,17 @@
             <span class="spacer"></span>
             <n-button @click="showLogDocs = true"><i class="fa-solid fa-book" style="margin-right:6px"></i>上报接口文档</n-button>
           </div>
+          <!-- 智能错误分析：近 7 天日志聚类出的高频故障模式 -->
+          <n-card v-if="logInsights && logInsights.groups && logInsights.groups.length" class="pad-card" style="margin-bottom:16px" content-style="padding:16px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <div class="card-title"><i class="fa-solid fa-brain" style="color:#7c3aed;margin-right:8px"></i>智能错误分析<span class="view-sub" style="margin-left:10px">近 7 天共扫描 {{ logInsights.scanned }} 条 warn/error/fatal 日志，聚类出 {{ logInsights.groups.length }} 类高频故障模式</span></div>
+              <n-space :size="8">
+                <n-button size="small" quaternary @click="loadLogInsights"><i class="fa-solid fa-rotate" style="margin-right:6px"></i>刷新</n-button>
+                <n-button size="small" secondary type="primary" @click="askAiInsights"><i class="fa-solid fa-robot" style="margin-right:6px"></i>让 AI 分析</n-button>
+              </n-space>
+            </div>
+            <n-data-table v-if="logInsights.groups.length" style="margin-top:12px" :columns="insightCols" :data="logInsights.groups" :row-key="r => r.signature" :bordered="false" size="small" :scroll-x="860" />
+          </n-card>
           <n-card class="pad-card" content-style="padding:16px 18px">
             <n-space align="center" :wrap="true" style="margin-bottom:14px">
               <n-select v-model:value="logFilter.level" :options="levelOptions" style="width:130px" @update:value="loadLogs(1)" />
@@ -535,6 +546,46 @@
               </div>
             </n-card>
           </div>
+        </div>
+
+        <!-- ============ 智能报告 ============ -->
+        <div v-if="view === 'reports'">
+          <div class="view-head">
+            <h2>智能报告</h2>
+            <span class="view-sub">AI 自动汇总可用率 / 异常 / 错误日志，给出风险分析与建议</span>
+            <span class="spacer"></span>
+            <n-checkbox v-model:checked="reportSendEmail" style="margin-right:6px">生成后发邮件</n-checkbox>
+            <n-button :loading="reportBusy === 'weekly'" @click="genReport('weekly')"><i class="fa-regular fa-calendar-week" style="margin-right:6px"></i>生成周报（近 7 天）</n-button>
+            <n-button type="primary" :loading="reportBusy === 'daily'" @click="genReport('daily')"><i class="fa-regular fa-calendar-day" style="margin-right:6px"></i>生成日报（近 24 小时）</n-button>
+          </div>
+          <n-card class="pad-card" content-style="padding:8px 12px 12px">
+            <n-data-table v-if="reports.length" :columns="reportCols" :data="reports" :row-key="r => r.id" :bordered="false" :single-line="false" />
+            <n-empty v-else description="还没有报告，点击右上角「生成日报」让 AI 分析最近 24 小时的系统状态" style="margin:50px 0">
+              <template #icon><i class="fa-regular fa-newspaper"></i></template>
+            </n-empty>
+          </n-card>
+
+          <n-modal :show="true" v-if="reportDetail" preset="card" :title="reportDetail.title" style="width:860px;max-width:94vw">
+            <div v-if="reportDetail.status === 'pending'" style="text-align:center;padding:40px 0">
+              <div class="empty-icon"><i class="fa-solid fa-robot"></i></div>
+              <p style="color:#94a3b8;font-size:13px;margin-top:12px">报告生成中，通常需要 10~60 秒…</p>
+            </div>
+            <template v-else>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+                <n-tag size="small" round type="info">{{ reportDetail.kind === 'weekly' ? '周报' : '日报' }}</n-tag>
+                <span class="view-sub">生成于 {{ fmtT(reportDetail.created_at) }}</span>
+                <n-tag v-if="reportDetail.sent" size="small" round type="success">已发邮件</n-tag>
+                <span v-if="reportDetail.error" class="view-sub" style="color:#dc2626">失败：{{ reportDetail.error }}</span>
+              </div>
+              <div class="md-body" v-html="renderMD(reportDetail.content)"></div>
+            </template>
+            <template #footer>
+              <div style="display:flex;justify-content:flex-end;gap:10px">
+                <n-button v-if="reportDetail && reportDetail.status === 'done'" :loading="busy" @click="sendReportEmail(reportDetail.id)"><i class="fa-regular fa-paper-plane" style="margin-right:6px"></i>发送邮件</n-button>
+                <n-button @click="reportDetail = null">关 闭</n-button>
+              </div>
+            </template>
+          </n-modal>
         </div>
 
         <!-- ============ 上报令牌 ============ -->
@@ -716,6 +767,28 @@
                 </div>
               </n-card>
             </n-tab-pane>
+            <n-tab-pane v-if="user && user.is_admin" name="reports" tab="智能报告">
+              <n-card class="pad-card" content-style="padding:18px 20px">
+                <div class="card-title" style="margin-bottom:16px"><i class="fa-regular fa-newspaper" style="color:#2563eb;margin-right:8px"></i>AI 智能日报</div>
+                <p class="view-sub" style="display:block;margin-bottom:16px;max-width:760px">开启后，系统每天定时自动生成一份「监测日报」：汇总各目标可用率、异常事件、错误日志，由 AI 给出风险分析与建议，并发送到全局默认通知邮箱。也可在「智能报告」页随时手动生成日报 / 周报。</p>
+                <div class="form-item" style="max-width:760px">
+                  <n-switch v-model:value="reportForm.report_auto">
+                    <template #checked>每天自动发送 AI 日报</template>
+                    <template #unchecked>已停用自动日报</template>
+                  </n-switch>
+                </div>
+                <div class="form-item" style="max-width:760px">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <span class="view-sub">发送时间（每天）</span>
+                    <n-input-number v-model:value="reportForm.report_hour" :min="0" :max="23" :disabled="!reportForm.report_auto" style="width:110px" />
+                    <span class="view-sub">点</span>
+                  </div>
+                </div>
+                <div class="form-actions" style="margin-top:0">
+                  <n-button type="primary" :loading="busy" @click="saveReportSettings"><i class="fa-solid fa-floppy-disk" style="margin-right:6px"></i>保存</n-button>
+                </div>
+              </n-card>
+            </n-tab-pane>
           </n-tabs>
         </div>
 
@@ -815,6 +888,6 @@
 <script src="/assets/vendor/naive-ui.min.js"></script>
 <script src="/assets/vendor/chart.umd.js"></script>
 <script src="/assets/vendor/marked.min.js"></script>
-<script src="/assets/app.js?v=8"></script>
+<script src="/assets/app.js?v=9"></script>
 </body>
 </html>

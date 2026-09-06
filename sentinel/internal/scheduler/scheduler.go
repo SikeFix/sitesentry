@@ -10,19 +10,21 @@ import (
 	"sitesentry/internal/detector"
 	"sitesentry/internal/mailer"
 	"sitesentry/internal/monitor"
+	"sitesentry/internal/report"
 	"sitesentry/internal/store"
 )
 
 type Scheduler struct {
-	Cfg *config.Config
-	St  *store.Store
-	Det *detector.Detector
+	Cfg  *config.Config
+	St   *store.Store
+	Det  *detector.Detector
 	Mail *mailer.Mailer
-	mu  sync.Mutex
+	Rep  *report.Reporter
+	mu   sync.Mutex
 }
 
-func New(cfg *config.Config, st *store.Store, det *detector.Detector, mail *mailer.Mailer) *Scheduler {
-	return &Scheduler{Cfg: cfg, St: st, Det: det, Mail: mail}
+func New(cfg *config.Config, st *store.Store, det *detector.Detector, mail *mailer.Mailer, rep *report.Reporter) *Scheduler {
+	return &Scheduler{Cfg: cfg, St: st, Det: det, Mail: mail, Rep: rep}
 }
 
 // Run 启动周期调度（进程内定时器，每 tickSec 一轮）
@@ -60,6 +62,7 @@ func (s *Scheduler) safeTick() {
 	s.Det.CheckLogBursts()
 	s.Det.ProcessPending(5)
 	n2 := s.Mail.FlushQueue(20)
+	s.maybeAutoReport()
 	s.maybeCleanup()
 	if n1 > 0 || n2 > 0 {
 		log.Printf("[scheduler] 本轮完成: 探测 %d 个目标, 发送 %d 封邮件, 耗时 %v", n1, n2, time.Since(start).Round(time.Millisecond))
@@ -126,6 +129,38 @@ func (s *Scheduler) checkDueTargets() int {
 		}
 	}
 	return count
+}
+
+// maybeAutoReport 智能日报自动推送：开启 report_auto 后，每天到达 report_hour
+// 时为管理员生成一份日报并邮件发送（当天只触发一次）。
+var lastAutoReportDay string
+
+func (s *Scheduler) maybeAutoReport() {
+	if s.St.GetSetting("report_auto", "0") != "1" {
+		return
+	}
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	if lastAutoReportDay == today {
+		return
+	}
+	hour := s.St.GetIntSetting("report_hour", 8)
+	if now.Hour() < hour {
+		return
+	}
+	lastAutoReportDay = today
+	var uid uint64
+	if err := s.St.DB.QueryRow(
+		`SELECT id FROM users WHERE role='admin' AND enabled=1 ORDER BY id LIMIT 1`).Scan(&uid); err != nil {
+		return
+	}
+	log.Printf("[report] 自动日报开始（user %d，%s）", uid, today)
+	id, err := s.Rep.Create(uid, "daily", true)
+	if err != nil {
+		log.Printf("[report] 自动日报创建失败: %v", err)
+	} else {
+		log.Printf("[report] 自动日报任务 #%d 已提交", id)
+	}
 }
 
 // maybeCleanup 每小时做一次数据清理

@@ -125,6 +125,11 @@ func (d *Detector) AfterCheck(t TargetInfo, becameDown, becameUp bool, r monitor
 		if r.Note != "" {
 			detail += "\n附加信息：" + r.Note
 		}
+		// 关联故障检测：多个目标短时间内同时离线，提示共同故障源
+		if n, names := d.correlatedDowns(t.UserID, t.ID); n >= 2 {
+			detail += fmt.Sprintf("\n⚠️ 关联故障提示：另有 %d 个目标（%s）在近 10 分钟内同时离线，疑似共同原因（同一服务器/网络链路/CDN/DNS），建议优先排查公共依赖。",
+				n, strings.Join(names, "、"))
+		}
 		d.CreateAnomaly(t.UserID, "check_down", "critical", &t.ID, t.Name,
 			fmt.Sprintf("网站离线：%s", t.Name), detail, "open")
 		return
@@ -246,9 +251,40 @@ func (d *Detector) CheckLogBursts() {
 		}
 		detail := fmt.Sprintf("来源「%s」在最近 10 分钟内上报了 %d 条 error/fatal 级日志（阈值 %d 条），可能存在服务异常。",
 			b.source, b.cnt, threshold)
+		// 关联故障检测：爆发时若有目标正处离线，提示可能同源
+		if dn, names := d.correlatedDowns(b.userID, 0); dn >= 1 {
+			detail += fmt.Sprintf("\n⚠️ 关联提示：当前另有 %d 个监测目标处于离线状态（%s），错误爆发与离线可能同源。",
+				dn, strings.Join(names, "、"))
+		}
 		d.CreateAnomaly(b.userID, "log_burst", severity, nil, b.source,
 			fmt.Sprintf("日志错误爆发：%s（%d 条/10 分钟）", b.source, b.cnt), detail, "open")
 	}
+}
+
+// correlatedDowns 返回近 10 分钟内处于离线状态的其他目标（selfID 为需排除的目标，0 表示不排除）。
+// 用于关联故障检测：多个目标同时离线大概率是共同故障源（同机房/链路/CDN/DNS）。
+func (d *Detector) correlatedDowns(userID, selfID uint64) (int, []string) {
+	q := `SELECT name FROM monitor_targets WHERE user_id=? AND status='down'
+		 AND last_check_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)`
+	args := []interface{}{userID}
+	if selfID > 0 {
+		q += " AND id<>?"
+		args = append(args, selfID)
+	}
+	q += " ORDER BY id LIMIT 10"
+	rows, err := d.Store.DB.Query(q, args...)
+	if err != nil {
+		return 0, nil
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
+			names = append(names, n)
+		}
+	}
+	return len(names), names
 }
 
 // CreateAnomaly 插入一条异常（未通知状态）。

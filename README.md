@@ -26,6 +26,7 @@
   - 网站离线（up→down 翻转即告警，**恢复时自动关闭对应离线异常**）
   - 响应时间突增（最近一次 > 24h 均值 × 系数 且 > 2s）
   - 日志错误爆发（某来源 10 分钟内 error/fatal 超阈值，30 分钟冷却去重）
+  - **关联故障检测**：同一用户的多个目标在近 10 分钟内同时离线时，自动在离线异常详情中追加关联提示（列出同时离线的目标），帮助快速定位「同一服务器 / 网络链路 / CDN / DNS」等共同原因
   - 外部站点主动上报异常（token 鉴权 API）
 - **AI 能力（OpenAI 兼容接口）**
   - **自动诊断**：异常产生时自动拼装上下文（探测记录 + 最近错误日志）调用 LLM，输出中文根因分析与修复建议，随告警邮件一起发出
@@ -36,9 +37,11 @@
     - 安全兜底：离线类异常仅当目标**当前确实在线**才允许自动关闭，防止误关仍在故障的站点；后台可一键停用
   - **恢复事件自动闭环**：「网站已恢复」属信息性事件，创建即自动关闭，不再占用待处理列表（恢复邮件照常发送）
   - **AI 助手**：后台聊天面板，会话持久化，可勾选最近的异常 / 日志作为上下文提问
+  - **AI 智能报告（日报 / 周报）**：一键生成监测运营报告。系统自动采集统计窗口内的各目标可用率 / 平均响应、证书风险、异常事件、日志级别分布与 Top 错误来源，交由 LLM 撰写结构化中文报告（总体概览 / 各目标表现表 / 异常与事件分析 / 错误日志分析 / 按优先级的风险与建议）；报告入库持久化，可在后台「智能报告」页查看、删除、一键发送到默认通知邮箱；支持管理员设置**每日自动生成日报**（开关 + 时间点，由调度器触发并自动发邮件）
 - **日志收集（跨站点）**
   - 每用户可生成多个上报令牌，外部网站 `POST /api/v1/logs` 上报（level / message / context）
   - 日志中心：级别 / 来源 / 关键字 / 时间范围筛选、来源统计、上下文查看
+  - **日志智能聚类分析**：对近 7 天 warn/error/fatal 日志做消息归一化（URL / IP / 十六进制 / 路径 / 数字掩码），按「来源 + 归一化特征」聚类成故障模式，按出现次数排序展示（最多 20 组）；可一键把 Top 模式交给 AI 助手做根因分析，快速定位「看起来不同、其实是同一问题」的重复错误
 - **通知**
   - 邮件：自实现轻量 SMTP 客户端（SSL / STARTTLS），multipart HTML 模板，**发信限速保护**（超限自动排队重发），全程审计日志
   - Webhook：飞书 / 钉钉 / 企微 / 自定义机器人，随异常推送诊断摘要
@@ -75,7 +78,8 @@
     │   ├── store/            # MySQL 连接、自动迁移、默认设置
     │   ├── monitor/          # HTTP 探测引擎（状态码 / 关键词 / 超时）
     │   ├── detector/         # 异常规则引擎 + AI 诊断 + 自动决策
-    │   ├── llm/              # OpenAI 兼容客户端（诊断 / 聊天 / 决策解析）
+    │   ├── llm/              # OpenAI 兼容客户端（诊断 / 聊天 / 决策解析 / 报告撰写）
+    │   ├── report/           # AI 智能报告（数据采集 → LLM 生成 → 邮件发送）
     │   ├── mailer/           # SMTP 客户端 + 限速队列 + HTML 模板
     │   ├── webhook/          # 飞书 / 钉钉 / 企微 / 自定义
     │   └── scheduler/        # 进程内定时器（探测 → 检测 → 诊断 → 发信 → 清理）
@@ -145,6 +149,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sentinel .
 | `default_notify_emails` | 全局默认通知邮箱（逗号分隔） |
 | `log_burst_threshold` / `latency_multiplier` | 日志爆发阈值（条/10min）、慢响应倍数 |
 | `ssl_warn_days` | SSL 证书到期提前告警天数（1-90，默认 7；已过期为严重级） |
+| `report_auto` / `report_hour` | **AI 日报自动生成**：开关（0/1）与每日生成时间点（0-23 点，到点后由调度器生成日报并发邮件，每天最多一次） |
 | `webhook_type` / `webhook_url` | Webhook 渠道（feishu / dingtalk / wechat / custom）与地址 |
 
 ## 生产部署
@@ -253,6 +258,7 @@ TCP 端口目标（只做连通性探测，`url` 字段填 `host:port`，状态�
 |---|---|---|
 | GET | `/api/logs` | 日志列表 `?level=&source=&keyword=&from=&to=&page=&size=` |
 | GET | `/api/logs/sources` | 来源统计 |
+| GET | `/api/logs/insights` | 日志智能聚类：近 7 天 warn/error/fatal 归一化后的故障模式分组 `{scanned, groups:[{signature, sample, count, levels, sources, first_at, last_at}]}`（按次数倒序，最多 20 组） |
 
 ### 异常告警
 
@@ -274,6 +280,18 @@ TCP 端口目标（只做连通性探测，`url` 字段填 `host:port`，状态�
 | GET | `/api/ai/conversations/:id/messages` | 消息列表 |
 | POST | `/api/ai/conversations/:id/messages` | 发送消息（可带异常 / 日志上下文） |
 | POST | `/api/ai/conversations/:id/messages/stream` | SSE 流式回复 |
+
+### AI 智能报告
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/reports` | 报告列表（最近 50 条，含状态 / 是否已发邮件） |
+| GET | `/api/reports/:id` | 报告详情（Markdown 正文 + 指标快照 metrics） |
+| POST | `/api/reports` | 生成报告 `{kind: "daily" \| "weekly", send_email?: true}`；同类型已有「生成中」任务时直接复用，避免重复生成 |
+| POST | `/api/reports/:id/send` | 把报告发送到默认通知邮箱（`default_notify_emails`） |
+| DELETE | `/api/reports/:id` | 删除报告 |
+
+报告状态流转：`pending`（LLM 生成中，约 20-60s）→ `done` / `failed`；正文为 Markdown，后台用 marked 渲染，邮件为 HTML 版本。
 
 ### 上报令牌
 
@@ -365,7 +383,7 @@ server {
 
 ## 数据表
 
-`users` / `sessions` / `monitor_targets` / `checks` / `api_tokens` / `logs` / `anomalies` / `llm_conversations` / `llm_messages` / `mail_queue` / `mail_log` / `settings`
+`users` / `sessions` / `monitor_targets` / `checks` / `api_tokens` / `logs` / `anomalies` / `llm_conversations` / `llm_messages` / `ai_reports` / `mail_queue` / `mail_log` / `settings`
 
 `anomalies` 关键字段：`type` / `severity` / `status(open|resolved)` / `notified` / `llm_analysis` / `llm_at` / `ai_decision(auto_resolve|watch|manual)` / `resolved_at`
 

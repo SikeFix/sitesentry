@@ -14,20 +14,22 @@ import (
 	"sitesentry/internal/detector"
 	"sitesentry/internal/llm"
 	"sitesentry/internal/mailer"
+	"sitesentry/internal/report"
 	"sitesentry/internal/store"
 )
 
 type Handler struct {
-	Cfg *config.Config
-	St  *store.Store
-	A   *auth.Auth
-	LLM *llm.Client
+	Cfg  *config.Config
+	St   *store.Store
+	A    *auth.Auth
+	LLM  *llm.Client
 	Mail *mailer.Mailer
-	Det *detector.Detector
+	Det  *detector.Detector
+	Rep  *report.Reporter
 }
 
-func New(cfg *config.Config, st *store.Store, a *auth.Auth, lc *llm.Client, ml *mailer.Mailer, dt *detector.Detector) *Handler {
-	return &Handler{Cfg: cfg, St: st, A: a, LLM: lc, Mail: ml, Det: dt}
+func New(cfg *config.Config, st *store.Store, a *auth.Auth, lc *llm.Client, ml *mailer.Mailer, dt *detector.Detector, rp *report.Reporter) *Handler {
+	return &Handler{Cfg: cfg, St: st, A: a, LLM: lc, Mail: ml, Det: dt, Rep: rp}
 }
 
 // ok / fail 统一响应
@@ -87,6 +89,13 @@ func NewRouter(h *Handler) *gin.Engine {
 
 			g.GET("/logs", h.ListLogs)
 			g.GET("/logs/sources", h.LogSources)
+			g.GET("/logs/insights", h.LogInsights)
+
+			g.GET("/reports", h.ListReports)
+			g.GET("/reports/:id", h.GetReport)
+			g.POST("/reports", h.CreateReport)
+			g.POST("/reports/:id/send", h.SendReportEmail)
+			g.DELETE("/reports/:id", h.DeleteReport)
 
 			g.GET("/anomalies", h.ListAnomalies)
 			g.GET("/anomalies/:id", h.GetAnomaly)

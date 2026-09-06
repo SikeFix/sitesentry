@@ -170,6 +170,20 @@ var schema = []string{
 		skey VARCHAR(64) PRIMARY KEY,
 		svalue TEXT NOT NULL
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+	`CREATE TABLE IF NOT EXISTS ai_reports (
+		id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+		user_id BIGINT UNSIGNED NOT NULL,
+		kind ENUM('daily','weekly') NOT NULL DEFAULT 'daily',
+		title VARCHAR(255) NOT NULL,
+		content MEDIUMTEXT NOT NULL,
+		metrics JSON NULL,
+		status ENUM('pending','done','failed') NOT NULL DEFAULT 'pending',
+		error VARCHAR(512) NOT NULL DEFAULT '',
+		want_email TINYINT NOT NULL DEFAULT 0,
+		sent TINYINT NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		INDEX idx_user_time (user_id, created_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 }
 
 func (s *Store) Migrate() error {
@@ -278,6 +292,8 @@ var newKeys = map[string]string{
 	"webhook_url":     "",
 	"ai_auto_resolve": "1",
 	"ssl_warn_days":   "7",
+	"report_auto":     "0",
+	"report_hour":     "8",
 }
 
 // EnsureAdmin 若无任何用户则创建初始 admin

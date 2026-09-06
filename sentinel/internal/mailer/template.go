@@ -294,6 +294,55 @@ func AlertEmail(appName, baseURL, aType, severity, title, detail, llmAnalysis, t
 	return
 }
 
+// ReportEmail 构建智能报告邮件（HTML + 纯文本双版本）
+func ReportEmail(appName, baseURL, kindLabel, title, contentMD string) (html, plain string) {
+	now := time.Now().Format("2006-01-02 15:04:05")
+	fontStack := `-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif`
+	kindLabelEsc := EscapeHTML(kindLabel)
+
+	html = fmt.Sprintf(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;">
+<div style="max-width:680px;margin:0 auto;padding:28px 16px;font-family:%s;">
+	<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+		<tr><td style="height:4px;background:#2563eb;font-size:0;line-height:0;">&nbsp;</td></tr>
+		<tr><td style="background:#0f172a;padding:16px 24px;">
+			<table role="presentation" width="100%%" cellpadding="0" cellspacing="0"><tr>
+				<td style="color:#ffffff;font-size:16px;font-weight:700;">%s</td>
+				<td align="right" style="color:#94a3b8;font-size:12px;">%s</td>
+			</tr></table>
+		</td></tr>
+		<tr><td style="padding:20px 24px 8px;">
+			<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;"><tr><td style="padding:12px 16px;">
+				<span style="font-size:13px;font-weight:700;color:#1d4ed8;">%s</span>
+				<span style="color:#64748b;font-size:12px;margin-left:10px;">%s</span>
+			</td></tr></table>
+			<div style="font-size:17px;font-weight:700;color:#111827;margin:16px 0 10px;">%s</div>
+			<div style="font-size:13px;color:#1f2937;line-height:1.8;">%s</div>
+		</td></tr>
+		<tr><td style="padding:18px 24px 20px;border-top:1px solid #f1f5f9;text-align:center;">
+			<a href="%s" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;padding:9px 22px;border-radius:8px;">在后台查看完整报告</a>
+			<div style="color:#9ca3af;font-size:11px;margin-top:14px;line-height:1.8;">
+				此邮件由 %s 自动发送 · %s
+			</div>
+		</td></tr>
+	</table>
+</div>
+</body></html>`,
+		fontStack,
+		EscapeHTML(appName), kindLabelEsc,
+		kindLabelEsc, now,
+		EscapeHTML(title),
+		MDToHTML(contentMD),
+		baseURL+"/admin/#/reports",
+		EscapeHTML(appName), now)
+
+	plain = "【" + appName + "】" + kindLabel + "：" + title + "\n\n" + contentMD + "\n\n" +
+		"在后台查看完整报告: " + baseURL + "/admin/#/reports\n" +
+		"此邮件由 " + appName + " 自动发送。"
+	return
+}
+
 // TestEmail 构建邮件通道测试邮件（HTML + 纯文本）
 func TestEmail(appName string) (html, plain string) {
 	now := time.Now().Format("2006-01-02 15:04:05")

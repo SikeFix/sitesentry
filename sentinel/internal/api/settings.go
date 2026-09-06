@@ -27,6 +27,7 @@ var editableKeys = map[string]bool{
 	"ai_auto_resolve": true,
 	"ssl_warn_days": true,
 	"webhook_type": true, "webhook_url": true,
+	"report_auto": true, "report_hour": true,
 }
 
 // GetSettings 读取设置（管理员可见全部，普通用户可见部分）
@@ -124,6 +125,16 @@ func (h *Handler) SaveSettings(c *gin.Context) {
 		case "webhook_url":
 			if v != "" && !strings.HasPrefix(v, "http") {
 				badReq(c, "webhook_url 需以 http(s) 开头")
+				return
+			}
+		case "report_auto":
+			if v != "0" && v != "1" {
+				badReq(c, "report_auto 需为 0 或 1")
+				return
+			}
+		case "report_hour":
+			if n, err := strconv.Atoi(v); err != nil || n < 0 || n > 23 {
+				badReq(c, "report_hour 需为 0-23")
 				return
 			}
 		}

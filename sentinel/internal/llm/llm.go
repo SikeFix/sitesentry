@@ -245,6 +245,26 @@ func (c *Client) Diagnose(anomalyType, severity, title, detail, contextBlock str
 	}, 4000)
 }
 
+// Report 基于监测数据汇总生成中文 Markdown 运营报告（日报/周报通用）
+func (c *Client) Report(contextBlock string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	sys := `你是一位资深网站运维分析师，为网站状态监测系统（SiteSentry）撰写运营报告。` +
+		`用户会提供统计窗口内的完整监测数据：各目标可用率与探测统计、异常事件、错误日志分布与样本、证书风险。` +
+		`请输出中文 Markdown 报告，必须包含以下五个部分：` +
+		`## 一、总体概览（结论先行，2~4 句话概括整体健康度）` +
+		`## 二、各目标表现（用表格列出：名称 / 当前状态 / 可用率 / 平均响应，并点名表现最好与最需要关注的目标）` +
+		`## 三、异常与事件分析（对窗口内每类异常给出可能原因与影响面；无异常则明确说明）` +
+		`## 四、错误日志分析（结合高频来源与错误样本，判断是否存在持续性/重复性问题）` +
+		`## 五、风险与建议（按优先级列出 3~5 条具体可执行的建议，含证书到期等时效性风险）` +
+		`要求：只基于给定数据，严禁虚构数字；数据不足处如实说明；语言简洁专业，不堆砌套话。`
+	user := contextBlock + "\n/no_think"
+	return c.Chat(ctx, []Message{
+		{Role: "system", Content: sys},
+		{Role: "user", Content: user},
+	}, 4000)
+}
+
 // ParseDecision 从诊断报告中提取 AI 自动决策（auto_resolve/watch/manual），无法识别时返回空串
 func ParseDecision(analysis string) string {
 	lines := strings.Split(analysis, "\n")

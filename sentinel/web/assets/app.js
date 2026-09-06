@@ -76,8 +76,16 @@
         logSources: [],
         logFilter: { level: '', source: '', q: '' },
         logCtx: null,
+        logInsights: null,
         showLogDocs: false,
         apiBase: location.origin,
+
+        // 智能报告
+        reports: [],
+        reportDetail: null,
+        reportBusy: null,
+        reportSendEmail: true,
+        _reportPollTimer: null,
 
         // 异常
         anomalies: { items: [], total: 0, page: 1, size: 20 },
@@ -108,6 +116,7 @@
         llmEnabled: true,
         aiAutoResolve: true,
         rulesForm: { log_burst_threshold: 10, latency_multiplier: 3, ssl_warn_days: 7 },
+        reportForm: { report_auto: false, report_hour: 8 },
         webhookForm: { type: 'feishu', url: '' },
         webhookTypeOptions: [
           { label: '飞书机器人', value: 'feishu' },
@@ -210,6 +219,7 @@
               : undefined,
           },
           { label: 'AI 助手', key: 'ai', icon: icon('fa-robot') },
+          { label: '智能报告', key: 'reports', icon: icon('fa-newspaper') },
           { label: '上报令牌', key: 'tokens', icon: icon('fa-key') },
           { label: '通知与设置', key: 'settings', icon: icon('fa-gear') },
         ];
@@ -371,6 +381,58 @@
           },
         ];
       },
+      reportCols() {
+        return [
+          { title: '时间', key: 'created_at', width: 140, render: r => h('span', { class: 'cell-time' }, this.fmtT(r.created_at)) },
+          {
+            title: '类型', key: 'kind', width: 80,
+            render: r => h(NTag, { size: 'small', round: true, bordered: false, type: r.kind === 'weekly' ? 'info' : 'default' }, () => r.kind === 'weekly' ? '周报' : '日报'),
+          },
+          { title: '标题', key: 'title', minWidth: 200, ellipsis: { tooltip: true }, render: r => h('span', { class: 'cell-strong' }, r.title) },
+          {
+            title: '状态', key: 'status', width: 110,
+            render: r => r.status === 'pending'
+              ? h(NTag, { size: 'small', round: true, bordered: false, type: 'info' }, () => '生成中…')
+              : r.status === 'done'
+                ? h(NTag, { size: 'small', round: true, bordered: false, type: 'success' }, () => '已完成')
+                : h(NTag, { size: 'small', round: true, bordered: false, type: 'error', title: r.error || '' }, () => '失败'),
+          },
+          {
+            title: '邮件', key: 'sent', width: 90,
+            render: r => r.sent ? h(NTag, { size: 'small', round: true, bordered: false, type: 'success' }, () => '已发送')
+              : h('span', { class: 'cell-muted' }, '-'),
+          },
+          {
+            title: '操作', key: 'op', width: 200,
+            render: r => h(NSpace, { size: 6 }, () => [
+              h(NButton, { size: 'tiny', secondary: true, type: 'primary', loading: r.status === 'pending', onClick: () => this.openReport(r.id) }, () => '查看'),
+              r.status === 'done' ? h(NButton, { size: 'tiny', secondary: true, onClick: () => this.sendReportEmail(r.id) }, () => '发邮件') : null,
+              h(NPopconfirm, { positiveText: '删除', negativeText: '取消', onPositiveClick: () => this.delReport(r) }, {
+                trigger: () => h(NButton, { size: 'tiny', secondary: true, type: 'error' }, () => '删除'),
+                default: () => h('span', null, '确定删除这份报告？'),
+              }),
+            ]),
+          },
+        ];
+      },
+      insightCols() {
+        return [
+          {
+            title: '故障模式（归一化特征）', key: 'signature', minWidth: 260, ellipsis: { tooltip: true },
+            render: r => h('span', { class: 'cell-mono', style: 'font-size:12px' }, r.signature),
+          },
+          {
+            title: '次数', key: 'count', width: 80,
+            render: r => h(NTag, { size: 'small', round: true, bordered: false, type: r.count >= 10 ? 'error' : (r.count >= 3 ? 'warning' : 'default') }, () => r.count),
+          },
+          {
+            title: '级别', key: 'levels', width: 110,
+            render: r => h(NSpace, { size: 4 }, () => r.levels.map(lv => h(NTag, { size: 'tiny', round: true, bordered: false, type: levelTagType(lv) }, () => lv))),
+          },
+          { title: '来源', key: 'sources', width: 170, ellipsis: { tooltip: true }, render: r => h('span', { class: 'cell-mono' }, r.sources.join(', ')) },
+          { title: '最近出现', key: 'last_at', width: 138, render: r => h('span', { class: 'cell-time' }, this.fmtT(r.last_at)) },
+        ];
+      },
       userCols() {
         return [
           { title: 'ID', key: 'id', width: 60 },
@@ -443,7 +505,7 @@
         const map = {
           '': 'dashboard', dashboard: 'dashboard', targets: 'targets',
           'target-detail': 'target-detail', logs: 'logs', anomalies: 'anomalies',
-          'anomaly-detail': 'anomaly-detail', ai: 'ai', tokens: 'tokens',
+          'anomaly-detail': 'anomaly-detail', ai: 'ai', reports: 'reports', tokens: 'tokens',
           settings: 'settings', users: 'users', profile: 'profile', login: 'login',
         };
         this.view = map[v] || 'dashboard';
@@ -462,10 +524,11 @@
           case 'dashboard': this.loadDashboard(); break;
           case 'targets': this.loadTargets(); break;
           case 'target-detail': this.loadDetail(); break;
-          case 'logs': this.loadLogs(1); this.loadLogSources(); break;
+          case 'logs': this.loadLogs(1); this.loadLogSources(); this.loadLogInsights(); break;
           case 'anomalies': this.loadAnomalies(1); break;
           case 'anomaly-detail': this.loadAnomaly(); break;
           case 'ai': this.loadAi(); break;
+          case 'reports': this.loadReports(); break;
           case 'tokens': this.loadTokens(); break;
           case 'settings': this.loadSettings(); break;
           case 'users': this.loadUsers(); break;
@@ -930,6 +993,92 @@
         });
       },
 
+      // ---------- 智能报告 ----------
+      loadReports() {
+        api('GET', '/reports').then(d => { this.reports = d; }).catch(e => this.toast(e.message, 'error'));
+      },
+      genReport(kind) {
+        this.reportBusy = kind;
+        api('POST', '/reports', { kind, send_email: this.reportSendEmail }).then(d => {
+          this.toast(d.reused ? '该类型报告正在生成中，已为你打开进度' : '报告生成中，通常需要 10~60 秒…', 'info');
+          this.loadReports();
+          this.pollReport(d.id);
+        }).catch(e => {
+          this.toast(e.message, 'error');
+          this.reportBusy = null;
+        });
+      },
+      pollReport(id) {
+        if (this._reportPollTimer) clearInterval(this._reportPollTimer);
+        let tries = 0;
+        this._reportPollTimer = setInterval(() => {
+          tries++;
+          api('GET', '/reports').then(d => {
+            this.reports = d;
+            const r = d.find(x => x.id === id);
+            if (!r || r.status !== 'pending' || tries > 80) {
+              clearInterval(this._reportPollTimer);
+              this._reportPollTimer = null;
+              this.reportBusy = null;
+              if (r && r.status === 'done') {
+                this.toast('报告生成完成', 'success');
+                this.openReport(id);
+              } else if (r && r.status === 'failed') {
+                this.toast('报告生成失败：' + (r.error || '未知错误'), 'error');
+              }
+            }
+          }).catch(() => {});
+        }, 2500);
+      },
+      openReport(id) {
+        api('GET', '/reports/' + id).then(d => {
+          this.reportDetail = d;
+          if (d.status === 'pending') this.pollReport(id);
+        }).catch(e => this.toast(e.message, 'error'));
+      },
+      delReport(r) {
+        api('DELETE', '/reports/' + r.id, {}).then(() => {
+          this.toast('已删除', 'success');
+          this.loadReports();
+        }).catch(e => this.toast(e.message, 'error'));
+      },
+      sendReportEmail(id) {
+        this.busy = true;
+        api('POST', '/reports/' + id + '/send', {})
+          .then(() => {
+            this.toast('已加入邮件发送队列，请查收邮箱', 'success');
+            this.loadReports();
+            if (this.reportDetail && this.reportDetail.id === id) this.reportDetail.sent = 1;
+          })
+          .catch(e => this.toast(e.message, 'error'))
+          .finally(() => { this.busy = false; });
+      },
+
+      // ---------- 日志智能分析 ----------
+      loadLogInsights() {
+        api('GET', '/logs/insights').then(d => { this.logInsights = d; }).catch(() => { this.logInsights = null; });
+      },
+      askAiInsights() {
+        const g = (this.logInsights && this.logInsights.groups) || [];
+        if (!g.length) { this.toast('暂无可分析的故障模式', 'warning'); return; }
+        const lines = g.slice(0, 6).map((x, i) =>
+          (i + 1) + '. ' + x.signature + '（出现 ' + x.count + ' 次，来源：' + x.sources.join('/') + '，最近 ' + this.fmtT(x.last_at) + '）');
+        const text = '以下是日志智能分析出的近 7 天高频故障模式，请帮我逐个分析可能的原因，并给出排查命令和修复建议：\n' + lines.join('\n');
+        const trySend = (n) => {
+          if (this.aiConvId) {
+            this.aiInput = text;
+            this.sendAi();
+          } else if (n > 0) {
+            setTimeout(() => trySend(n - 1), 500);
+          } else {
+            this.aiInput = text;
+            this.toast('AI 对话初始化中，进入后点击「发送」即可', 'info');
+          }
+        };
+        this.go('ai');
+        trySend(8);
+      },
+
       // ---------- 令牌 ----------
       loadTokens() {
         api('GET', '/tokens').then(d => { this.tokens = d; }).catch(e => this.toast(e.message, 'error'));
@@ -981,6 +1130,10 @@
             latency_multiplier: Number(s.latency_multiplier || 3),
             ssl_warn_days: Number(s.ssl_warn_days || 7),
           };
+          this.reportForm = {
+            report_auto: s.report_auto === '1',
+            report_hour: Number(s.report_hour || 8),
+          };
           this.webhookForm = { type: s.webhook_type || 'feishu', url: s.webhook_url || '' };
         }).catch(e => this.toast(e.message, 'error'));
       },
@@ -1028,6 +1181,16 @@
           ssl_warn_days: String(this.rulesForm.ssl_warn_days),
         })
           .then(() => this.toast('已保存', 'success'))
+          .catch(e => this.toast(e.message, 'error'))
+          .finally(() => { this.busy = false; });
+      },
+      saveReportSettings() {
+        this.busy = true;
+        api('POST', '/settings', {
+          report_auto: this.reportForm.report_auto ? '1' : '0',
+          report_hour: String(Number(this.reportForm.report_hour || 8)),
+        })
+          .then(() => this.toast('已保存' + (this.reportForm.report_auto ? '，每天将自动发送 AI 日报' : ''), 'success'))
           .catch(e => this.toast(e.message, 'error'))
           .finally(() => { this.busy = false; });
       },
