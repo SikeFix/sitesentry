@@ -336,6 +336,22 @@ curl -X POST https://status.example.com/api/v1/anomalies \
 
 **连通性自检**：`GET /api/v1/ping`
 
+**前端自动注入（`deploy/sentry.js`）**：把网站的前端 JS 异常、未处理的 Promise 拒绝、关键资源加载失败自动上报到日志中心。脚本设计为零侵入 —— `defer` 异步加载、全程 try/catch、上报失败静默丢弃、单页最多 10 条且相同错误去重，**上报接口挂了也不会影响主站访问**。
+
+nginx 注入方式（以 BT 面板为例）：
+
+```nginx
+server {
+    server_name example.com;
+    # ---- SiteSentry 前端错误上报 ----
+    sub_filter '</head>' '<script src="/sentry.js" defer></script></head>';
+    sub_filter_once on;
+    location / { gzip off; }   # sub_filter 不处理 gzip 响应；反代站点需加 proxy_set_header Accept-Encoding "";
+}
+```
+
+把 `deploy/sentry.js`（替换 `<REPORT_TOKEN>` 为后台「上报令牌」生成的值）放到站点根目录即可。反代型站点（如 Next.js）若 `/sentry.js` 被转发到后端，需为它加 `location = /sentry.js { root <站点目录>; }` 静态规则。
+
 ## AI 自动决策工作机制
 
 1. 异常创建（`status=open`，恢复事件除外）→ 调度器**原子认领**（并发安全，保证每条异常只诊断一次、只发一封邮件）
