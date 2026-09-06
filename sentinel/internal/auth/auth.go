@@ -173,7 +173,7 @@ func (a *Auth) Login(c *gin.Context, username, password, ip, ua string) (*User, 
 	token := randomToken(32)
 	if _, err := a.Store.DB.Exec(
 		`INSERT INTO sessions (token, user_id, ip, ua, expires_at) VALUES (?, ?, ?, ?, ?)`,
-		token, id, ip, ua, now.Add(time.Duration(a.MaxAgeSec)*time.Second)); err != nil {
+		token, id, ip, UserAgent(ua), now.Add(time.Duration(a.MaxAgeSec)*time.Second)); err != nil {
 		return nil, err
 	}
 	a.setCookie(c, token)
@@ -268,10 +268,11 @@ func AdminOnly() gin.HandlerFunc {
 	}
 }
 
-// UserAgent 截断 UA
+// UserAgent 截断 UA（按 rune 截断，避免切断多字节字符产生非法 UTF-8）
 func UserAgent(ua string) string {
-	if len(ua) > 200 {
-		return ua[:200]
+	r := []rune(ua)
+	if len(r) > 200 {
+		return string(r[:200])
 	}
 	return ua
 }
