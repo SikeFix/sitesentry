@@ -294,6 +294,7 @@ var newKeys = map[string]string{
 	"ssl_warn_days":   "7",
 	"report_auto":     "0",
 	"report_hour":     "8",
+	"notify_enabled":  "1",
 }
 
 // EnsureAdmin 若无任何用户则创建初始 admin

@@ -147,6 +147,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sentinel .
 | `ai_auto_resolve` | **AI 自动决策开关**：开启后 AI 判定 `auto_resolve` 的异常自动关闭 |
 | `smtp_host` / `smtp_port` / `smtp_mode` / `smtp_user` / `smtp_pass` / `smtp_from_name` | SMTP 通道（`ssl` 或 `starttls`） |
 | `default_notify_emails` | 全局默认通知邮箱（逗号分隔） |
+| `notify_enabled` | **异常告警邮件通知总开关**（1 开启 / 0 暂停）：关闭后所有异常（离线 / 变慢 / 证书 / 日志爆发等）不再发送告警邮件；AI 诊断、异常记录与 Webhook 不受影响，重新开启后照常发送 |
 | `log_burst_threshold` / `latency_multiplier` | 日志爆发阈值（条/10min）、慢响应倍数 |
 | `ssl_warn_days` | SSL 证书到期提前告警天数（1-90，默认 7；已过期为严重级） |
 | `report_auto` / `report_hour` | **AI 日报自动生成**：开关（0/1）与每日生成时间点（0-23 点，到点后由调度器生成日报并发邮件，每天最多一次） |

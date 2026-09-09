@@ -111,6 +111,7 @@
         settingsTab: 'notify',
         settings: {},
         notifyForm: { default_notify_emails: '' },
+        notifyEnabled: true,
         smtpForm: { smtp_host: 'smtp.feishu.cn', smtp_port: 465, smtp_mode: 'ssl', smtp_user: '', smtp_pass: '', smtp_from_name: '' },
         llmForm: { llm_base_url: '', llm_model: '', llm_api_key: '' },
         llmEnabled: true,
@@ -1110,6 +1111,7 @@
         api('GET', '/settings').then(s => {
           this.settings = s;
           this.notifyForm.default_notify_emails = s.default_notify_emails || '';
+          this.notifyEnabled = s.notify_enabled !== '0';
           this.smtpForm = {
             smtp_host: s.smtp_host || 'smtp.feishu.cn',
             smtp_port: Number(s.smtp_port || 465),
@@ -1142,6 +1144,13 @@
         api('POST', '/settings', { default_notify_emails: this.notifyForm.default_notify_emails })
           .then(() => this.toast('已保存', 'success'))
           .catch(e => this.toast(e.message, 'error'))
+          .finally(() => { this.busy = false; });
+      },
+      saveNotifySwitch() {
+        this.busy = true;
+        api('POST', '/settings', { notify_enabled: this.notifyEnabled ? '1' : '0' })
+          .then(() => this.toast(this.notifyEnabled ? '异常告警邮件通知已开启' : '已暂停异常告警邮件通知', this.notifyEnabled ? 'success' : 'warning'))
+          .catch(e => { this.notifyEnabled = !this.notifyEnabled; this.toast(e.message, 'error'); })
           .finally(() => { this.busy = false; });
       },
       saveSmtp() {

@@ -28,6 +28,7 @@ var editableKeys = map[string]bool{
 	"ssl_warn_days": true,
 	"webhook_type": true, "webhook_url": true,
 	"report_auto": true, "report_hour": true,
+	"notify_enabled": true,
 }
 
 // GetSettings 读取设置（管理员可见全部，普通用户可见部分）
@@ -46,6 +47,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 		"latency_multiplier": all["latency_multiplier"],
 		"ssl_warn_days": all["ssl_warn_days"],
 		"ai_auto_resolve": all["ai_auto_resolve"],
+		"notify_enabled": all["notify_enabled"],
 	}
 	ok(c, safe)
 }
@@ -135,6 +137,11 @@ func (h *Handler) SaveSettings(c *gin.Context) {
 		case "report_hour":
 			if n, err := strconv.Atoi(v); err != nil || n < 0 || n > 23 {
 				badReq(c, "report_hour 需为 0-23")
+				return
+			}
+		case "notify_enabled":
+			if v != "0" && v != "1" {
+				badReq(c, "notify_enabled 需为 0 或 1")
 				return
 			}
 		}

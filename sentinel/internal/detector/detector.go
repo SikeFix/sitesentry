@@ -374,23 +374,27 @@ func (d *Detector) processOne(a *Anomaly) {
 		}
 	}
 
-	// 2) 邮件通知
-	recipients := d.recipients(a)
-	if len(recipients) == 0 {
-		log.Printf("[detector] 异常 #%d 无可用收件邮箱，跳过邮件", a.ID)
+	// 2) 邮件通知（总开关 notify_enabled=0 时暂停所有异常告警邮件，恢复后照常发送）
+	if d.Store.GetSetting("notify_enabled", "1") != "1" {
+		log.Printf("[detector] 异常 #%d 邮件通知总开关已关闭，跳过邮件发送", a.ID)
 	} else {
-		targetURL := ""
-		if a.TargetID.Valid {
-			var u string
-			if err := d.Store.DB.QueryRow(`SELECT url FROM monitor_targets WHERE id = ?`, a.TargetID.Int64).Scan(&u); err == nil {
-				targetURL = u
+		recipients := d.recipients(a)
+		if len(recipients) == 0 {
+			log.Printf("[detector] 异常 #%d 无可用收件邮箱，跳过邮件", a.ID)
+		} else {
+			targetURL := ""
+			if a.TargetID.Valid {
+				var u string
+				if err := d.Store.DB.QueryRow(`SELECT url FROM monitor_targets WHERE id = ?`, a.TargetID.Int64).Scan(&u); err == nil {
+					targetURL = u
+				}
 			}
-		}
-		html, plain := mailer.AlertEmail(appName, baseURL, a.Type, a.Severity, a.Title, a.Detail, a.LLMText, targetURL)
-		subject := fmt.Sprintf("[%s] %s", severityLabel(a.Severity), a.Title)
-		for _, to := range recipients {
-			if err := d.Mail.EnqueueText(a.UserID, to, subject, html, plain); err != nil {
-				log.Printf("[detector] 异常 #%d 入邮件队列失败(to=%s): %v", a.ID, to, err)
+			html, plain := mailer.AlertEmail(appName, baseURL, a.Type, a.Severity, a.Title, a.Detail, a.LLMText, targetURL)
+			subject := fmt.Sprintf("[%s] %s", severityLabel(a.Severity), a.Title)
+			for _, to := range recipients {
+				if err := d.Mail.EnqueueText(a.UserID, to, subject, html, plain); err != nil {
+					log.Printf("[detector] 异常 #%d 入邮件队列失败(to=%s): %v", a.ID, to, err)
+				}
 			}
 		}
 	}
